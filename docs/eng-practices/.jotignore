@@ -1,0 +1,31 @@
+# Jot ignore patterns
+# Similar to .gitignore syntax
+
+# Hidden files and directories
+.*
+!.jotignore
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Build output
+/dist/
+/build/
+/out/
+
+# Dependencies
+node_modules/
+vendor/
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db

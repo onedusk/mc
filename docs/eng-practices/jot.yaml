@@ -1,0 +1,47 @@
+# Jot Configuration File
+version: 1.0
+project:
+  name: "My Documentation"
+  description: "Project documentation"
+  author: "Your Name"
+
+input:
+  paths:
+    - "review"
+    - "README.md"
+  ignore:
+    - "**/_*.md"
+    - "**/drafts/**"
+    - "**/.git/**"
+    - "**/node_modules/**"
+
+output:
+  path: "dist"
+  format: "html"
+  theme: "default"
+  clean: true
+
+features:
+  search: true
+  versioning: true
+  llm_export: true
+  syntax_highlighting: true
+  auto_toc: true
+  
+server:
+  port: 8080
+  auto_reload: true
+  open_browser: true
+
+llm:
+  export_formats:
+    - json
+    - yaml
+  chunk_size: 512
+  overlap: 128
+  
+search:
+  enable: true
+  index_path: "dist/search-index.json"
+  fuzzy: true
+  highlight: true

@@ -1,0 +1,83 @@
+<toc version="1.0" llm-optimized="true">
+  <metadata>
+    <totalDocs>14</totalDocs>
+  </metadata>
+  <sections>
+    <chapter id="readme" path="README.md" modified="2025-10-06T07:50:53Z" size="1568" words="194" readTime="1min" hash="sha256:fc8e999b9e95bc77">
+      <title>Google Engineering Practices Documentation</title>
+      <summary>Google Engineering Practices Documentation Google has many generalized engineering practices that cover all languages and all projects. These documents represent our collective experience of variou...</summary>
+      <keywords>projects, possible, review, practices, means, other, documents, license, google, code</keywords>
+    </chapter>
+    <section id="developer">
+      <title>Developer</title>
+      <chapter id="developer-cl-descriptions" path="developer/cl-descriptions.md" modified="2025-10-06T07:50:53Z" size="8007" words="1324" readTime="5min" hash="sha256:f1231472e6769e01">
+        <title>Writing good CL descriptions</title>
+        <summary>Writing good CL descriptions A CL description is a public record of change, and it is important that it communicates: 1. **What** change is being made? This should summarize the major changes s...</summary>
+        <keywords>enough, rest, build, task, examples, solution, generated, make, small, depend</keywords>
+      </chapter>
+      <chapter id="developer-handling-comments" path="developer/handling-comments.md" modified="2025-10-06T07:50:53Z" size="4367" words="717" readTime="2min" hash="sha256:db3cab260f177821">
+        <title>How to handle reviewer comments</title>
+        <summary>How to handle reviewer comments When you&apos;ve sent a CL out for review, it&apos;s likely that your reviewer will respond with several comments on your CL. Here are some useful things to know about handl...</summary>
+        <keywords>them, can&apos;t, work, isn&apos;t, doesn&apos;t, google, users, help, collaboratively, always</keywords>
+      </chapter>
+      <chapter id="developer-index" path="developer/index.md" modified="2025-10-06T07:50:53Z" size="647" words="95" readTime="1min" hash="sha256:10421c370a34c711">
+        <title>The CL author&apos;s guide to getting through code review</title>
+        <summary>The CL author&apos;s guide to getting through code review The pages in this section contain best practices for developers going through code review. These guidelines should help you get through reviews ...</summary>
+        <keywords>[how, code, read, through, review</keywords>
+      </chapter>
+      <chapter id="developer-small-cls" path="developer/small-cls.md" modified="2025-10-06T07:50:53Z" size="12289" words="2010" readTime="8min" hash="sha256:6bc55ce9a752bbb2">
+        <title>Small CLs</title>
+        <summary>Small CLs ## Why Write Small CLs? {#why} Small, simple CLs are: - **Reviewed more quickly.** It&apos;s easier for a reviewer to find five minutes several times to review small CLs than to set ...</summary>
+        <keywords>although, makes, &lt;!--, another, wrong, layers, other, covered, reviewer, previous</keywords>
+      </chapter>
+    </section>
+    <chapter id="emergencies" path="emergencies.md" modified="2025-10-06T07:50:53Z" size="3157" words="536" readTime="2min" hash="sha256:f6123a06a6a86b93">
+      <title>Emergencies</title>
+      <summary>Emergencies Sometimes there are emergency CLs that must pass through the entire code review process as quickly as possible. ## What Is An Emergency? {#what} An emergency CL would be a **small**...</summary>
+      <keywords>review, major, emergency, build, speed, submitting, however, deadline](#deadlines), important, emergencies</keywords>
+    </chapter>
+    <chapter id="index" path="index.md" modified="2025-10-06T07:50:53Z" size="2767" words="436" readTime="1min" hash="sha256:c1f1f98dde14d0bb">
+      <title>Untitled</title>
+      <summary>## Introduction {#intro} A code review is a process where someone other than the author(s) of a piece of code examines that code. At Google, we use code review to maintain the quality of our code a...</summary>
+      <keywords>well-designed, process, reviewers, review](reviewer/index.md)**, able, good, correct, should, find, guide</keywords>
+    </chapter>
+    <section id="reviewer">
+      <title>Reviewer</title>
+      <chapter id="reviewer-comments" path="reviewer/comments.md" modified="2025-10-06T07:50:53Z" size="4432" words="704" readTime="2min" hash="sha256:35118ebf2eec64df">
+        <title>How to write code review comments</title>
+        <summary>How to write code review comments ## Summary - Be kind. - Explain your reasoning. - Balance giving explicit directions with just pointing out problems and letting the developer decide....</summary>
+        <keywords>something, they, there&apos;s, performance, reviewer, making, result, intent, solution, practice</keywords>
+      </chapter>
+      <chapter id="reviewer-index" path="reviewer/index.md" modified="2025-10-06T07:50:53Z" size="786" words="120" readTime="1min" hash="sha256:06299c5d45d89545">
+        <title>How to do a code review</title>
+        <summary>How to do a code review The pages in this section contain recommendations on the best way to do code reviews, based on long experience. All together they represent one complete document, broken up ...</summary>
+        <keywords>review, code, read, many</keywords>
+      </chapter>
+      <chapter id="reviewer-looking-for" path="reviewer/looking-for.md" modified="2025-10-06T07:50:53Z" size="11330" words="1909" readTime="7min" hash="sha256:0a6643fc4ce2bc73">
+        <title>What to look for in a code review</title>
+        <summary>What to look for in a code review Note: Always make sure to take into account [The Standard of Code Review](standard.md) when considering each of these points. ## Design The most important thin...</summary>
+        <keywords>send, existing, reading, being, google, general, does, about, would, it&apos;s</keywords>
+      </chapter>
+      <chapter id="reviewer-navigate" path="reviewer/navigate.md" modified="2025-10-06T07:50:53Z" size="4157" words="723" readTime="2min" hash="sha256:6742ba45208ef35a">
+        <title>Navigating a CL in review</title>
+        <summary>Navigating a CL in review ## Summary Now that you know [what to look for](looking-for.md), what&apos;s the most efficient way to manage a review that&apos;s spread across multiple files? 1. Does the cha...</summary>
+        <keywords>appropriate, more, logical, instead, should, main, take, you&apos;ve, files, first</keywords>
+      </chapter>
+      <chapter id="reviewer-pushback" path="reviewer/pushback.md" modified="2025-10-06T07:50:53Z" size="4369" words="711" readTime="2min" hash="sha256:a6eeefeee0f786c5">
+        <title>Handling pushback in code reviews</title>
+        <summary>Handling pushback in code reviews Sometimes a developer will push back on a code review. Either they will disagree with your suggestion or they will complain that you are being too strict in gene...</summary>
+        <keywords>clean, strict, does, [polite](comments.md#courtesy), value, them, should, improvement, developers, want</keywords>
+      </chapter>
+      <chapter id="reviewer-speed" path="reviewer/speed.md" modified="2025-10-06T07:50:53Z" size="7154" words="1184" readTime="4min" hash="sha256:06d02508ad748ed9">
+        <title>Speed of Code Reviews</title>
+        <summary>Speed of Code Reviews ## Why Should Code Reviews Be Fast? {#why} **At Google, we optimize for the speed at which a team of developers can produce a product together**, as opposed to optimizing f...</summary>
+        <keywords>focused, smaller, important, further, other, task, learn, through, wait, respond</keywords>
+      </chapter>
+      <chapter id="reviewer-standard" path="reviewer/standard.md" modified="2025-10-06T07:50:53Z" size="5745" words="948" readTime="3min" hash="sha256:c37144f9f8880092">
+        <title>The Standard of Code Review</title>
+        <summary>The Standard of Code Review The primary purpose of code review is to make sure that the overall code health of Google&apos;s code base is improving over time. All of the tools and processes of code re...</summary>
+        <keywords>leave, point, they, health, future, important, personal, code, instead, it&apos;s</keywords>
+      </chapter>
+    </section>
+  </sections>
+</toc>
