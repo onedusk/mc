@@ -196,7 +196,7 @@ impl Scanner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Config, PatternConfig};
+    use crate::config::Config;
     use assert_fs::prelude::*;
     use assert_fs::TempDir;
     use std::fs;

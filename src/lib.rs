@@ -67,7 +67,7 @@ pub mod cli;
 pub use types::{CleanItem, CleanReport, CleanError, McError, Result};
 pub use config::{Config, PatternConfig, OptionsConfig, SafetyConfig};
 pub use patterns::{PatternMatcher, BUILTIN_PATTERNS};
-pub use engine::{Scanner, ParallelCleaner};
+pub use engine::{Scanner, ParallelCleaner, prune_nested_items};
 pub use safety::SafetyGuard;
 pub use utils::{Progress, ProgressReporter, NoOpProgress};
 
@@ -168,6 +168,9 @@ impl Cleaner {
         }
 
         let (items, scan_errors) = scanner.scan()?;
+
+        // Prune nested items to avoid redundant deletions
+        let items = prune_nested_items(items);
 
         if items.is_empty() {
             if !self.quiet {

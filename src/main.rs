@@ -122,6 +122,9 @@ fn run() -> Result<()> {
 
     let (items, scan_errors) = scanner.scan()?;
 
+    // Prune nested items to avoid redundant deletions
+    let items = mc::prune_nested_items(items);
+
     if items.is_empty() {
         if !cli.quiet {
             println!("No files to clean!");
