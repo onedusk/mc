@@ -42,6 +42,8 @@ pub struct PatternMatch {
     pub priority: u32,
     /// The source of the pattern (e.g., built-in, config, or CLI).
     pub source: PatternSource,
+    /// The category of the pattern for UI grouping.
+    pub category: PatternCategory,
 }
 
 /// An enumeration of the possible sources for a cleaning pattern.
@@ -53,6 +55,37 @@ pub enum PatternSource {
     Config,
     /// A pattern provided via a command-line argument.
     CLI,
+}
+
+/// Categories for organizing matched patterns in the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+pub enum PatternCategory {
+    /// Dependencies (node_modules, vendor, .venv)
+    Dependencies,
+    /// Build outputs (dist, build, target, .next, out)
+    BuildOutputs,
+    /// Cache files (.turbo, .pytest_cache, coverage)
+    Cache,
+    /// IDE and tool files (.idea, .vscode)
+    IDE,
+    /// Log files
+    Logs,
+    /// Other/uncategorized
+    Other,
+}
+
+impl PatternCategory {
+    /// Returns a human-readable label for the category.
+    pub fn label(&self) -> &'static str {
+        match self {
+            PatternCategory::Dependencies => "Dependencies",
+            PatternCategory::BuildOutputs => "Build",
+            PatternCategory::Cache => "Cache",
+            PatternCategory::IDE => "IDE",
+            PatternCategory::Logs => "Logs",
+            PatternCategory::Other => "Other",
+        }
+    }
 }
 
 /// A report summarizing the results of a cleaning operation.

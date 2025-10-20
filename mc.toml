@@ -1,0 +1,29 @@
+[patterns]
+# Directories to clean
+directories = [
+    "dist", "build", ".next", "out", "target",
+    "node_modules", ".turbo", "coverage", ".ropeproject",
+    ".ruby-lsp", ".idea"
+]
+
+# Files to clean (glob patterns)
+files = [
+    "*.tsbuildinfo", "toc.xml"
+]
+
+# Patterns to always exclude
+exclude = [
+    ".git",
+    ".env.local"
+]
+
+[options]
+parallel_threads = 8
+require_confirmation = true
+show_statistics = true
+preserve_symlinks = true
+
+[safety]
+check_git_repo = true
+max_depth = 10
+min_free_space_gb = 1.0

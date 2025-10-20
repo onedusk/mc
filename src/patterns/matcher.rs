@@ -13,7 +13,8 @@
 //! This order of operations ensures that exclusions always take precedence.
 
 use crate::config::PatternConfig;
-use crate::types::{PatternMatch, PatternSource};
+use crate::types::{PatternMatch, PatternSource, PatternCategory};
+use crate::patterns::BUILTIN_PATTERNS;
 use glob::{Pattern, PatternError};
 use std::path::Path;
 
@@ -22,10 +23,10 @@ use std::path::Path;
 /// It holds separate lists of patterns for directories, files, and exclusions.
 /// The patterns are pre-compiled into `glob::Pattern` objects for efficient matching.
 pub struct PatternMatcher {
-    /// Compiled glob patterns for matching directories.
-    directory_patterns: Vec<Pattern>,
-    /// Compiled glob patterns for matching files.
-    file_patterns: Vec<Pattern>,
+    /// Compiled glob patterns for matching directories with their categories.
+    directory_patterns: Vec<(Pattern, PatternCategory)>,
+    /// Compiled glob patterns for matching files with their categories.
+    file_patterns: Vec<(Pattern, PatternCategory)>,
     /// Compiled glob patterns for excluding items.
     exclude_patterns: Vec<Pattern>,
 }
@@ -41,8 +42,8 @@ impl PatternMatcher {
     /// Returns a `PatternError` if any of the provided glob patterns are invalid.
     pub fn new(config: &PatternConfig) -> Result<Self, PatternError> {
         Ok(Self {
-            directory_patterns: Self::compile_patterns(&config.directories)?,
-            file_patterns: Self::compile_patterns(&config.files)?,
+            directory_patterns: Self::compile_patterns_with_categories(&config.directories, true)?,
+            file_patterns: Self::compile_patterns_with_categories(&config.files, false)?,
             exclude_patterns: Self::compile_patterns(&config.exclude)?,
         })
     }
@@ -51,6 +52,17 @@ impl PatternMatcher {
     fn compile_patterns(patterns: &[String]) -> Result<Vec<Pattern>, PatternError> {
         patterns.iter()
             .map(|p| Pattern::new(p))
+            .collect()
+    }
+
+    /// Compiles patterns with their categories by looking them up in BUILTIN_PATTERNS.
+    fn compile_patterns_with_categories(patterns: &[String], _is_dir: bool) -> Result<Vec<(Pattern, PatternCategory)>, PatternError> {
+        patterns.iter()
+            .map(|p| {
+                let pattern = Pattern::new(p)?;
+                let category = BUILTIN_PATTERNS.get_category(p);
+                Ok((pattern, category))
+            })
             .collect()
     }
 
@@ -77,12 +89,13 @@ impl PatternMatcher {
 
         // Check directory patterns
         if path.is_dir() {
-            for (idx, pattern) in self.directory_patterns.iter().enumerate() {
+            for (idx, (pattern, category)) in self.directory_patterns.iter().enumerate() {
                 if pattern.matches(name) {
                     return Some(PatternMatch {
                         pattern: pattern.as_str().to_string(),
                         priority: idx as u32,
                         source: PatternSource::Config,
+                        category: *category,
                     });
                 }
             }
@@ -90,12 +103,13 @@ impl PatternMatcher {
 
         // Check file patterns
         if path.is_file() {
-            for (idx, pattern) in self.file_patterns.iter().enumerate() {
+            for (idx, (pattern, category)) in self.file_patterns.iter().enumerate() {
                 if pattern.matches(name) {
                     return Some(PatternMatch {
                         pattern: pattern.as_str().to_string(),
                         priority: idx as u32,
                         source: PatternSource::Config,
+                        category: *category,
                     });
                 }
             }
@@ -125,11 +139,12 @@ impl PatternMatcher {
     pub fn add_include_patterns(&mut self, patterns: &[String]) -> Result<(), PatternError> {
         for pattern_str in patterns {
             let pattern = Pattern::new(pattern_str)?;
+            let category = BUILTIN_PATTERNS.get_category(pattern_str);
             // Try to determine if it's a file or directory pattern
             if pattern_str.contains('.') || pattern_str.contains('*') {
-                self.file_patterns.push(pattern);
+                self.file_patterns.push((pattern, category));
             } else {
-                self.directory_patterns.push(pattern);
+                self.directory_patterns.push((pattern, category));
             }
         }
         Ok(())

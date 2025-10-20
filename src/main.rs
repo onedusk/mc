@@ -29,7 +29,7 @@ use mc::{
     patterns::PatternMatcher,
     engine::{Scanner, ParallelCleaner},
     safety::SafetyGuard,
-    utils::{ProgressReporter, NoOpProgress},
+    utils::{NoOpProgress, CompactDisplay, CategoryTracker, Progress},
     Result,
 };
 
@@ -109,25 +109,32 @@ fn run() -> Result<()> {
     // Create pattern matcher
     let matcher = Arc::new(PatternMatcher::new(&config.patterns)?);
 
-    // Scanner phase
-    if !cli.quiet {
-        println!("Scanning for files to clean in {}...",
-            path.display().to_string().bright_cyan()
-        );
-    }
+    // Create category tracker and compact display for scanning
+    let category_tracker = Arc::new(CategoryTracker::new());
+    let (items, scan_errors) = if !cli.quiet {
+        let display = CompactDisplay::new_for_scanning(Arc::clone(&category_tracker));
 
-    let scanner = Scanner::new(path.clone(), matcher)
-        .with_max_depth(config.safety.max_depth)
-        .with_symlinks(!config.options.preserve_symlinks);
+        let scanner = Scanner::new(path.clone(), matcher)
+            .with_max_depth(config.safety.max_depth)
+            .with_symlinks(!config.options.preserve_symlinks)
+            .with_category_tracker(Arc::clone(&category_tracker));
 
-    let (items, scan_errors) = scanner.scan()?;
+        let result = scanner.scan()?;
+        display.finish();
+        result
+    } else {
+        let scanner = Scanner::new(path.clone(), matcher)
+            .with_max_depth(config.safety.max_depth)
+            .with_symlinks(!config.options.preserve_symlinks);
+        scanner.scan()?
+    };
 
     // Prune nested items to avoid redundant deletions
     let items = mc::prune_nested_items(items);
 
     if items.is_empty() {
         if !cli.quiet {
-            println!("No files to clean!");
+            println!("\nNo files to clean!");
         }
         return Ok(());
     }
@@ -135,12 +142,22 @@ fn run() -> Result<()> {
     // Calculate total size
     let total_size: u64 = items.iter().map(|i| i.size).sum();
 
-    // Show summary
+    // Show summary with category breakdown
     if !cli.quiet {
-        println!("\nFound {} items totaling {}",
+        println!();
+        println!("{}", "━".repeat(50).bright_black());
+        println!("\n{} {} • {}",
+            "Found".dimmed(),
             items.len().to_string().bright_white(),
             format_size(total_size, DECIMAL).bright_green()
         );
+
+        // Show category breakdown
+        if category_tracker.total_count() > 0 {
+            println!("  {}", category_tracker.format_breakdown());
+        }
+
+        println!();
     }
 
     // Confirmation prompt (unless --yes or dry-run)
@@ -161,13 +178,11 @@ fn run() -> Result<()> {
     let progress = if cli.quiet {
         Arc::new(NoOpProgress) as Arc<dyn mc::Progress>
     } else {
-        Arc::new(ProgressReporter::new(items.len() as u64)) as Arc<dyn mc::Progress>
+        let display = CompactDisplay::new_for_cleaning(items.len() as u64);
+        let worker_count = config.options.parallel_threads;
+        display.set_message(&format!("Cleaning ({} workers)", worker_count.to_string().bright_cyan()));
+        Arc::new(display) as Arc<dyn mc::Progress>
     };
-
-    // Cleaning phase
-    if !cli.quiet && !cli.dry_run {
-        println!("\nCleaning files...");
-    }
 
     let cleaner = ParallelCleaner::new()
         .with_threads(config.options.parallel_threads)
@@ -256,60 +271,49 @@ fn handle_command(command: Commands, cli: &Cli) -> Result<()> {
 /// The report is printed to stdout with colors and formatting for readability.
 /// It distinguishes between a dry run and an actual cleaning operation.
 fn print_report(report: &mc::CleanReport) {
-    println!("\n{}", "─".repeat(50).bright_black());
+    println!();
 
     if report.dry_run {
-        println!("{}", "DRY RUN COMPLETE".yellow().bold());
-        println!("{}: {} items would be deleted",
-            "Results".bold(),
+        println!("{} {} items",
+            "✓".bright_green(),
             report.items_deleted.to_string().bright_white()
         );
-        println!("{}: {} would be freed",
-            "Space".bold(),
+        println!("{} {} would be freed",
+            "✓".bright_green(),
             format_size(report.bytes_freed, DECIMAL).bright_green()
         );
+        println!("\n{}", "Dry run complete!".yellow());
     } else {
-        println!("{}", "CLEANING COMPLETE".green().bold());
-        println!("{}: {} items deleted",
-            "Results".bold(),
+        // Calculate throughput
+        let duration_secs = report.duration.as_secs_f64();
+        let mb_per_sec = if duration_secs > 0.0 {
+            (report.bytes_freed as f64 / duration_secs) / 1_000_000.0
+        } else {
+            0.0
+        };
+
+        println!("{} Cleaned {} items",
+            "✓".bright_green(),
             report.items_deleted.to_string().bright_white()
         );
-        println!("{}: {} freed",
-            "Space".bold(),
-            format_size(report.bytes_freed, DECIMAL).bright_green()
+        println!("{} Freed {} in {:.1}s",
+            "✓".bright_green(),
+            format_size(report.bytes_freed, DECIMAL).bright_green(),
+            duration_secs
         );
-        println!("{}: {:?}", "Time".bold(), report.duration);
+        if mb_per_sec > 0.0 {
+            println!("  {:.1} MB/s", mb_per_sec.to_string().bright_cyan());
+        }
+        println!("\n{}", "Done!".green());
     }
 
-    if !report.scan_errors.is_empty() {
-        println!(
-            "\n{}: {} errors occurred during scan",
-            "Warning".yellow().bold(),
-            report.scan_errors.len()
+    // Show errors if any (compact format)
+    if !report.scan_errors.is_empty() || !report.errors.is_empty() {
+        println!();
+        let total_errors = report.scan_errors.len() + report.errors.len();
+        println!("{} {} errors occurred",
+            "⚠".yellow(),
+            total_errors.to_string().yellow()
         );
-        for (i, error) in report.scan_errors.iter().enumerate().take(5) {
-            println!("  {}: {}", i + 1, error);
-        }
-        if report.scan_errors.len() > 5 {
-            println!(
-                "  ... and {} more scan errors",
-                report.scan_errors.len() - 5
-            );
-        }
     }
-
-    if !report.errors.is_empty() {
-        println!("\n{}: {} errors occurred during cleaning",
-            "Warning".yellow().bold(),
-            report.errors.len()
-        );
-        for (i, error) in report.errors.iter().enumerate().take(5) {
-            println!("  {}: {}", i + 1, error);
-        }
-        if report.errors.len() > 5 {
-            println!("  ... and {} more errors", report.errors.len() - 5);
-        }
-    }
-
-    println!("{}", "─".repeat(50).bright_black());
 }

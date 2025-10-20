@@ -5,6 +5,7 @@
 //! The patterns are lazily initialized for efficiency using `once_cell`.
 
 use once_cell::sync::Lazy;
+use crate::types::PatternCategory;
 
 /// A lazily initialized static set of built-in patterns.
 ///
@@ -13,50 +14,50 @@ use once_cell::sync::Lazy;
 /// through user configuration.
 pub static BUILTIN_PATTERNS: Lazy<PatternSet> = Lazy::new(|| {
     PatternSet {
-        directories: vec![
+        categorized_dirs: vec![
             // Build outputs
-            "dist",
-            "build",
-            ".next",
-            "out",
-            "target",
+            ("dist", PatternCategory::BuildOutputs),
+            ("build", PatternCategory::BuildOutputs),
+            (".next", PatternCategory::BuildOutputs),
+            ("out", PatternCategory::BuildOutputs),
+            ("target", PatternCategory::BuildOutputs),
+
             // Dependencies
-            "node_modules",
-            ".venv",
-            "vendor",
+            ("node_modules", PatternCategory::Dependencies),
+            (".venv", PatternCategory::Dependencies),
+            ("vendor", PatternCategory::Dependencies),
+
             // Cache
-            ".turbo",
-            ".bun",
-            ".pytest_cache",
-            ".benchmark-cache",
-            "coverage",
-            ".ropeproject",
-            ".ruby-lsp",
-            // Tools
-            ".idea",
-            ".flock",
-            ".swarm",
-            ".hive-mind",
-            ".claude-flow",
-            ".roo",
-            "memory",
-            "coordination",
-            // Additional from the shell script
-            "claude-flow",
-            ".mcp.json",
+            (".turbo", PatternCategory::Cache),
+            (".bun", PatternCategory::Cache),
+            (".pytest_cache", PatternCategory::Cache),
+            (".benchmark-cache", PatternCategory::Cache),
+            ("coverage", PatternCategory::Cache),
+            (".ropeproject", PatternCategory::Cache),
+            (".ruby-lsp", PatternCategory::Cache),
+
+            // IDE and Tools
+            (".idea", PatternCategory::IDE),
+            (".flock", PatternCategory::IDE),
+            (".swarm", PatternCategory::IDE),
+            (".hive-mind", PatternCategory::IDE),
+            (".claude-flow", PatternCategory::IDE),
+            (".roo", PatternCategory::IDE),
+            ("memory", PatternCategory::Other),
+            ("coordination", PatternCategory::Other),
+            ("claude-flow", PatternCategory::IDE),
+            (".mcp.json", PatternCategory::IDE),
         ],
-        files: vec![
-            "*.log",
-            "*.tsbuildinfo",
-            "package-lock.json",
-            "bun.lock",
-            "uv.lock",
-            "Gemfile.lock",
-            "claude-flow.bat",
-            "claude-flow.ps1",
-            "claude-flow.config.json",
-            "AGENTS.md",
-            "claude-flow-1.0.70.tgz",
+        categorized_files: vec![
+            ("*.tsbuildinfo", PatternCategory::BuildOutputs),
+            ("package-lock.json", PatternCategory::Cache),
+            ("bun.lock", PatternCategory::Cache),
+            ("uv.lock", PatternCategory::Cache),
+            ("Gemfile.lock", PatternCategory::Cache),
+            ("claude-flow.bat", PatternCategory::IDE),
+            ("claude-flow.ps1", PatternCategory::IDE),
+            ("claude-flow.config.json", PatternCategory::IDE),
+            ("claude-flow-1.0.70.tgz", PatternCategory::Cache),
         ],
         exclude: vec![".git", ".github"],
     }
@@ -67,10 +68,41 @@ pub static BUILTIN_PATTERNS: Lazy<PatternSet> = Lazy::new(|| {
 /// These patterns are defined as string slices for maximum efficiency, as they
 /// are known at compile time.
 pub struct PatternSet {
-    /// A list of directory names that are typically safe to delete.
-    pub directories: Vec<&'static str>,
-    /// A list of file names or glob patterns for files that are typically safe to delete.
-    pub files: Vec<&'static str>,
+    /// A list of directory names with their categories.
+    pub categorized_dirs: Vec<(&'static str, PatternCategory)>,
+    /// A list of file patterns with their categories.
+    pub categorized_files: Vec<(&'static str, PatternCategory)>,
     /// A list of patterns to exclude from cleaning, to prevent accidental deletion.
     pub exclude: Vec<&'static str>,
+}
+
+impl PatternSet {
+    /// Returns all directories as a simple vector (for backward compatibility).
+    pub fn directories(&self) -> Vec<&'static str> {
+        self.categorized_dirs.iter().map(|(name, _)| *name).collect()
+    }
+
+    /// Returns all files as a simple vector (for backward compatibility).
+    pub fn files(&self) -> Vec<&'static str> {
+        self.categorized_files.iter().map(|(name, _)| *name).collect()
+    }
+
+    /// Gets the category for a given pattern.
+    pub fn get_category(&self, pattern: &str) -> PatternCategory {
+        // Check directories
+        for (name, category) in &self.categorized_dirs {
+            if *name == pattern {
+                return *category;
+            }
+        }
+
+        // Check files
+        for (name, category) in &self.categorized_files {
+            if *name == pattern {
+                return *category;
+            }
+        }
+
+        PatternCategory::Other
+    }
 }

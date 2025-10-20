@@ -177,12 +177,12 @@ impl Default for Config {
         Self {
             patterns: PatternConfig {
                 directories: BUILTIN_PATTERNS
-                    .directories
+                    .directories()
                     .iter()
                     .map(|s| s.to_string())
                     .collect(),
                 files: BUILTIN_PATTERNS
-                    .files
+                    .files()
                     .iter()
                     .map(|s| s.to_string())
                     .collect(),

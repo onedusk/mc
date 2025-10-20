@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::fs;
 use dashmap::DashMap;
 use crate::types::{CleanItem, ItemType, ScanError};
-use crate::utils::progress::Progress;
+use crate::utils::progress::{Progress, CategoryTracker};
 
 /// A file system scanner that identifies items to be cleaned.
 ///
@@ -38,6 +38,8 @@ pub struct Scanner {
     follow_symlinks: bool,
     /// An optional progress reporter.
     progress: Option<Arc<dyn Progress>>,
+    /// An optional category tracker for aggregating statistics.
+    category_tracker: Option<Arc<CategoryTracker>>,
 }
 
 impl Scanner {
@@ -54,6 +56,7 @@ impl Scanner {
             max_depth: 10,
             follow_symlinks: false,
             progress: None,
+            category_tracker: None,
         }
     }
 
@@ -72,6 +75,12 @@ impl Scanner {
     /// Attaches a progress reporter to the scanner.
     pub fn with_progress(mut self, progress: Arc<dyn Progress>) -> Self {
         self.progress = Some(progress);
+        self
+    }
+
+    /// Attaches a category tracker to the scanner.
+    pub fn with_category_tracker(mut self, tracker: Arc<CategoryTracker>) -> Self {
+        self.category_tracker = Some(tracker);
         self
     }
 
@@ -144,10 +153,16 @@ impl Scanner {
 
         if let Some(pattern_match) = self.matcher.matches(path) {
             let metadata = entry.metadata().ok()?;
+            let size = self.calculate_size(path, &metadata);
+
+            // Update category tracker if present
+            if let Some(ref tracker) = self.category_tracker {
+                tracker.add_item(pattern_match.category, size);
+            }
 
             Some(CleanItem {
                 path: path.to_path_buf(),
-                size: self.calculate_size(path, &metadata),
+                size,
                 item_type: self.determine_type(&metadata),
                 pattern: pattern_match,
             })

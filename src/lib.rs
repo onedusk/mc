@@ -64,12 +64,12 @@ pub mod safety;
 pub mod utils;
 pub mod cli;
 
-pub use types::{CleanItem, CleanReport, CleanError, McError, Result};
+pub use types::{CleanItem, CleanReport, CleanError, McError, Result, PatternCategory};
 pub use config::{Config, PatternConfig, OptionsConfig, SafetyConfig};
 pub use patterns::{PatternMatcher, BUILTIN_PATTERNS};
 pub use engine::{Scanner, ParallelCleaner, prune_nested_items};
 pub use safety::SafetyGuard;
-pub use utils::{Progress, ProgressReporter, NoOpProgress};
+pub use utils::{Progress, ProgressReporter, NoOpProgress, CompactDisplay, CategoryTracker};
 
 use std::path::Path;
 use std::sync::Arc;
