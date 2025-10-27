@@ -1,11 +1,11 @@
-pub mod scanner;
 pub mod cleaner;
+pub mod scanner;
 
-pub use scanner::Scanner;
 pub use cleaner::{ParallelCleaner, Statistics};
+pub use scanner::Scanner;
 
 use crate::types::CleanItem;
-use std::path::Path;
+use std::collections::HashSet;
 
 /// Prunes nested items from a list of CleanItems.
 ///
@@ -51,14 +51,17 @@ pub fn prune_nested_items(mut items: Vec<CleanItem>) -> Vec<CleanItem> {
     });
 
     let mut pruned = Vec::new();
+    let mut kept_paths: HashSet<std::path::PathBuf> = HashSet::new();
 
     for item in items {
-        // Check if any item in our pruned list is an ancestor of this item
-        let has_ancestor = pruned.iter().any(|kept: &CleanItem| {
-            is_ancestor(&kept.path, &item.path)
-        });
+        let has_ancestor = item
+            .path
+            .ancestors()
+            .skip(1)
+            .any(|ancestor| kept_paths.contains(ancestor));
 
         if !has_ancestor {
+            kept_paths.insert(item.path.clone());
             pruned.push(item);
         }
     }
@@ -66,21 +69,10 @@ pub fn prune_nested_items(mut items: Vec<CleanItem>) -> Vec<CleanItem> {
     pruned
 }
 
-/// Checks if `ancestor` is an ancestor (parent, grandparent, etc.) of `descendant`.
-fn is_ancestor(ancestor: &Path, descendant: &Path) -> bool {
-    // If paths are equal, ancestor is not strictly an ancestor
-    if ancestor == descendant {
-        return false;
-    }
-
-    // Check if descendant starts with ancestor
-    descendant.starts_with(ancestor)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ItemType, PatternMatch, PatternSource};
+    use crate::types::{ItemType, PatternCategory, PatternMatch, PatternSource};
     use std::path::PathBuf;
 
     fn make_item(path: &str, size: u64) -> CleanItem {
@@ -92,6 +84,7 @@ mod tests {
                 pattern: "test".to_string(),
                 priority: 0,
                 source: PatternSource::BuiltIn,
+                category: PatternCategory::Other,
             },
         }
     }
@@ -112,12 +105,20 @@ mod tests {
         // /project/node_modules (keeps, prunes nested pkg1/dist and pkg2/build)
         // /project/dist (keeps, prunes nested subdir)
         assert_eq!(pruned.len(), 2);
-        assert!(pruned.iter().any(|i| i.path == PathBuf::from("/project/node_modules")));
-        assert!(pruned.iter().any(|i| i.path == PathBuf::from("/project/dist")));
+        assert!(pruned
+            .iter()
+            .any(|i| i.path == PathBuf::from("/project/node_modules")));
+        assert!(pruned
+            .iter()
+            .any(|i| i.path == PathBuf::from("/project/dist")));
 
         // Verify nested items were pruned
-        assert!(!pruned.iter().any(|i| i.path == PathBuf::from("/project/node_modules/pkg1/dist")));
-        assert!(!pruned.iter().any(|i| i.path == PathBuf::from("/project/dist/subdir")));
+        assert!(!pruned
+            .iter()
+            .any(|i| i.path == PathBuf::from("/project/node_modules/pkg1/dist")));
+        assert!(!pruned
+            .iter()
+            .any(|i| i.path == PathBuf::from("/project/dist/subdir")));
     }
 
     #[test]
@@ -139,29 +140,5 @@ mod tests {
         let items: Vec<CleanItem> = vec![];
         let pruned = prune_nested_items(items);
         assert_eq!(pruned.len(), 0);
-    }
-
-    #[test]
-    fn test_is_ancestor() {
-        assert!(is_ancestor(
-            &PathBuf::from("/a/b"),
-            &PathBuf::from("/a/b/c")
-        ));
-        assert!(is_ancestor(
-            &PathBuf::from("/a"),
-            &PathBuf::from("/a/b/c/d")
-        ));
-        assert!(!is_ancestor(
-            &PathBuf::from("/a/b"),
-            &PathBuf::from("/a/b")
-        ));
-        assert!(!is_ancestor(
-            &PathBuf::from("/a/b"),
-            &PathBuf::from("/a/c")
-        ));
-        assert!(!is_ancestor(
-            &PathBuf::from("/x"),
-            &PathBuf::from("/y")
-        ));
     }
 }

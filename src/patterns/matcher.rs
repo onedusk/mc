@@ -13,9 +13,10 @@
 //! This order of operations ensures that exclusions always take precedence.
 
 use crate::config::PatternConfig;
-use crate::types::{PatternMatch, PatternSource, PatternCategory};
 use crate::patterns::BUILTIN_PATTERNS;
+use crate::types::{PatternCategory, PatternMatch, PatternSource};
 use glob::{Pattern, PatternError};
+use std::fs::FileType;
 use std::path::Path;
 
 /// A matcher that checks paths against compiled glob patterns.
@@ -50,14 +51,16 @@ impl PatternMatcher {
 
     /// Compiles a slice of string patterns into a vector of `glob::Pattern`s.
     fn compile_patterns(patterns: &[String]) -> Result<Vec<Pattern>, PatternError> {
-        patterns.iter()
-            .map(|p| Pattern::new(p))
-            .collect()
+        patterns.iter().map(|p| Pattern::new(p)).collect()
     }
 
     /// Compiles patterns with their categories by looking them up in BUILTIN_PATTERNS.
-    fn compile_patterns_with_categories(patterns: &[String], _is_dir: bool) -> Result<Vec<(Pattern, PatternCategory)>, PatternError> {
-        patterns.iter()
+    fn compile_patterns_with_categories(
+        patterns: &[String],
+        _is_dir: bool,
+    ) -> Result<Vec<(Pattern, PatternCategory)>, PatternError> {
+        patterns
+            .iter()
             .map(|p| {
                 let pattern = Pattern::new(p)?;
                 let category = BUILTIN_PATTERNS.get_category(p);
@@ -79,6 +82,30 @@ impl PatternMatcher {
     ///
     /// An `Option<PatternMatch>` containing details of the match if found, otherwise `None`.
     pub fn matches(&self, path: &Path) -> Option<PatternMatch> {
+        match path.symlink_metadata() {
+            Ok(metadata) => self.matches_with_type(path, Some(metadata.file_type())),
+            Err(_) => self.matches_with_type(path, None),
+        }
+    }
+
+    /// Checks if a given path matches any of the cleaning patterns using a known file type.
+    ///
+    /// This variant avoids additional filesystem metadata calls when the caller already
+    /// has the `FileType` (e.g., from a directory walk).
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The path to check.
+    /// * `file_type` - The file type for the path, typically retrieved from `DirEntry::file_type()`.
+    ///
+    /// # Returns
+    ///
+    /// An `Option<PatternMatch>` containing details of the match if found, otherwise `None`.
+    pub fn matches_with_type(
+        &self,
+        path: &Path,
+        file_type: Option<FileType>,
+    ) -> Option<PatternMatch> {
         // Check exclusions first
         if self.is_excluded(path) {
             return None;
@@ -87,8 +114,19 @@ impl PatternMatcher {
         // Get the file/dir name for matching
         let name = path.file_name()?.to_str()?;
 
+        let (is_dir_candidate, is_file_candidate) = match file_type {
+            Some(file_type) => {
+                if file_type.is_symlink() {
+                    (true, true)
+                } else {
+                    (file_type.is_dir(), file_type.is_file())
+                }
+            }
+            None => (true, true),
+        };
+
         // Check directory patterns
-        if path.is_dir() {
+        if is_dir_candidate {
             for (idx, (pattern, category)) in self.directory_patterns.iter().enumerate() {
                 if pattern.matches(name) {
                     return Some(PatternMatch {
@@ -102,7 +140,7 @@ impl PatternMatcher {
         }
 
         // Check file patterns
-        if path.is_file() {
+        if is_file_candidate {
             for (idx, (pattern, category)) in self.file_patterns.iter().enumerate() {
                 if pattern.matches(name) {
                     return Some(PatternMatch {
@@ -121,8 +159,7 @@ impl PatternMatcher {
     /// Checks if a path is excluded by any of the exclusion patterns.
     fn is_excluded(&self, path: &Path) -> bool {
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            self.exclude_patterns.iter()
-                .any(|p| p.matches(name))
+            self.exclude_patterns.iter().any(|p| p.matches(name))
         } else {
             false
         }

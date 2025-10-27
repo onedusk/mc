@@ -5,13 +5,13 @@
 //! reporter for quiet mode. This decouples the core logic from the specifics of
 //! the UI representation.
 
-use indicatif::{ProgressBar, ProgressStyle};
+use crate::types::PatternCategory;
 use colored::*;
+use dashmap::DashMap;
 use humansize::{format_size, DECIMAL};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use dashmap::DashMap;
-use crate::types::PatternCategory;
 
 /// A trait for progress reporters.
 ///
@@ -178,7 +178,7 @@ impl CompactDisplay {
             ProgressStyle::default_spinner()
                 .template("{spinner:.cyan} {msg}")
                 .unwrap()
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
 
         Self {

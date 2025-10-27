@@ -11,19 +11,18 @@
 //! approach is effective for I/O-bound tasks like file deletion, as it allows the
 //! OS to handle multiple deletion requests simultaneously.
 
-use rayon::prelude::*;
-use crossbeam_channel::bounded;
+use colored::*;
+use dashmap::DashMap;
+use humansize::{format_size, DECIMAL};
+use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
 use std::fs;
 use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use dashmap::DashMap;
-use humansize::{format_size, DECIMAL};
-use colored::*;
 
-use crate::types::{CleanItem, ItemType, CleanReport, CleanError};
+use crate::types::{CleanError, CleanItem, CleanReport, ItemType};
 use crate::utils::progress::Progress;
 
 /// A parallel cleaner that deletes items concurrently using a thread pool.
@@ -36,6 +35,8 @@ pub struct ParallelCleaner {
     thread_count: usize,
     /// The number of items to process in each parallel chunk.
     chunk_size: usize,
+    /// Reusable thread pool for file operations.
+    thread_pool: Arc<ThreadPool>,
     /// If true, no file system modifications will be made.
     dry_run: bool,
     /// An optional, thread-safe progress reporter.
@@ -65,9 +66,14 @@ impl ParallelCleaner {
     /// By default, it uses a number of threads equal to the number of logical CPU cores.
     pub fn new() -> Self {
         let thread_count = num_cpus::get();
+        let thread_pool = ThreadPoolBuilder::new()
+            .num_threads(thread_count)
+            .build()
+            .expect("failed to build rayon thread pool");
         Self {
             thread_count,
             chunk_size: 100,
+            thread_pool: Arc::new(thread_pool),
             dry_run: false,
             progress: None,
             stats: Arc::new(Statistics::default()),
@@ -77,6 +83,12 @@ impl ParallelCleaner {
     /// Sets the number of threads to use for cleaning.
     pub fn with_threads(mut self, count: usize) -> Self {
         self.thread_count = count;
+        self.thread_pool = Arc::new(
+            ThreadPoolBuilder::new()
+                .num_threads(count)
+                .build()
+                .expect("failed to rebuild rayon thread pool"),
+        );
         self
     }
 
@@ -118,51 +130,49 @@ impl ParallelCleaner {
             return self.dry_run_clean(items);
         }
 
+        self.stats.items_deleted.store(0, Ordering::Relaxed);
+        self.stats.bytes_freed.store(0, Ordering::Relaxed);
+        self.stats.errors.clear();
+
         let start = Instant::now();
-        let (error_tx, error_rx) = bounded(100);
+        let progress = self.progress.clone();
+        let stats = Arc::clone(&self.stats);
+        let errors = Mutex::new(Vec::new());
+        let chunk_size = self.chunk_size;
 
-        // Set up thread pool
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(self.thread_count)
-            .build()
-            .unwrap()
-            .install(|| {
-                // Process items in parallel
-                items.par_chunks(self.chunk_size)
-                    .for_each_with(error_tx.clone(), |tx, chunk| {
-                        for item in chunk {
-                            match self.delete_item(item) {
-                                Ok(()) => {
-                                    self.stats.items_deleted.fetch_add(1, Ordering::Relaxed);
-                                    self.stats.bytes_freed.fetch_add(item.size, Ordering::Relaxed);
-                                    if let Some(ref progress) = self.progress {
-                                        progress.increment(1);
-                                    }
-                                }
-                                Err(e) => {
-                                    let _ = tx.send((item.path.clone(), e));
-                                }
-                            }
+        self.thread_pool.install(|| {
+            items.par_iter().with_min_len(chunk_size).for_each(|item| {
+                match self.delete_item(item) {
+                    Ok(()) => {
+                        stats.items_deleted.fetch_add(1, Ordering::Relaxed);
+                        stats.bytes_freed.fetch_add(item.size, Ordering::Relaxed);
+                        if let Some(ref progress) = progress {
+                            progress.increment(1);
                         }
-                    });
+                    }
+                    Err(err) => {
+                        let clean_error = CleanError::IoError {
+                            path: item.path.clone(),
+                            message: err.to_string(),
+                        };
+                        stats.errors.insert(item.path.clone(), clean_error.clone());
+                        errors
+                            .lock()
+                            .expect("error accumulator mutex poisoned")
+                            .push(clean_error);
+                    }
+                }
             });
+        });
 
-        drop(error_tx);
-
-        // Collect errors
-        let mut errors = Vec::new();
-        while let Ok((path, error)) = error_rx.recv() {
-            let clean_error = CleanError::IoError {
-                path: path.clone(),
-                message: error.to_string(),
-            };
-            errors.push(clean_error.clone());
-            self.stats.errors.insert(path, clean_error);
-        }
+        let errors = match errors.into_inner() {
+            Ok(list) => list,
+            Err(poisoned) => poisoned.into_inner(),
+        };
 
         Ok(CleanReport {
-            items_deleted: self.stats.items_deleted.load(Ordering::Relaxed),
-            bytes_freed: self.stats.bytes_freed.load(Ordering::Relaxed),
+            items_deleted: stats.items_deleted.load(Ordering::Relaxed),
+            bytes_freed: stats.bytes_freed.load(Ordering::Relaxed),
             errors,
             scan_errors: Vec::new(),
             duration: start.elapsed(),
@@ -205,7 +215,10 @@ impl ParallelCleaner {
     fn dry_run_clean(&self, items: Vec<CleanItem>) -> crate::types::Result<CleanReport> {
         let total_size: u64 = items.iter().map(|i| i.size).sum();
 
-        println!("\n{}", "DRY RUN MODE - No files will be deleted".yellow().bold());
+        println!(
+            "\n{}",
+            "DRY RUN MODE - No files will be deleted".yellow().bold()
+        );
         println!("{}", "─".repeat(50).bright_black());
 
         // Group items by type for better display
@@ -223,7 +236,8 @@ impl ParallelCleaner {
         if !directories.is_empty() {
             println!("\n{}:", "Directories to remove".cyan().bold());
             for dir in directories.iter().take(20) {
-                println!("  {} {} ({})",
+                println!(
+                    "  {} {} ({})",
                     "📁".bright_blue(),
                     dir.path.display(),
                     format_size(dir.size, DECIMAL).bright_yellow()
@@ -238,7 +252,8 @@ impl ParallelCleaner {
         if !files.is_empty() {
             println!("\n{}:", "Files to remove".cyan().bold());
             for file in files.iter().take(20) {
-                println!("  {} {} ({})",
+                println!(
+                    "  {} {} ({})",
                     "📄".bright_green(),
                     file.path.display(),
                     format_size(file.size, DECIMAL).bright_yellow()
@@ -251,7 +266,11 @@ impl ParallelCleaner {
 
         println!("\n{}", "─".repeat(50).bright_black());
         println!("{}: {} items", "Total".bold(), items.len());
-        println!("{}: {}", "Space to free".bold(), format_size(total_size, DECIMAL).bright_green());
+        println!(
+            "{}: {}",
+            "Space to free".bold(),
+            format_size(total_size, DECIMAL).bright_green()
+        );
 
         Ok(CleanReport {
             items_deleted: items.len(),

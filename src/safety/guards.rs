@@ -64,8 +64,10 @@ impl SafetyGuard {
         {
             if let Ok(space) = self.get_free_space(path) {
                 if space < self.min_free_space {
-                    bail!("Insufficient disk space. Need at least {} GB free",
-                        self.min_free_space / 1_000_000_000);
+                    bail!(
+                        "Insufficient disk space. Need at least {} GB free",
+                        self.min_free_space / 1_000_000_000
+                    );
                 }
             }
         }
@@ -79,8 +81,7 @@ impl SafetyGuard {
     /// This is a crucial safety feature to prevent accidental deletion of a project's
     /// version control history.
     fn is_git_repo(&self, path: &Path) -> bool {
-        path.ancestors()
-            .any(|p| p.join(".git").exists())
+        path.ancestors().any(|p| p.join(".git").exists())
     }
 
     /// Gets the available free space on the disk where the path is located.

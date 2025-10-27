@@ -1,3 +1,14 @@
+---
+claude: docs/CLAUDE.md
+codex: docs/AGENTS.md
+gemini: docs/GEMINI.md
+license: docs/LICENSE
+contributing: docs/CONTRIBUTING.md
+changelog: docs/CHANGELOG.md
+conduct: docs/CODE_OF_CONDUCT.md
+security: docs/SECURITY.md
+---
+
 # Mr. Cleann (mc)
 
 A parallel build directory cleaner for modern development workflows.

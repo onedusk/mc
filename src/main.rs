@@ -20,16 +20,16 @@ use clap::Parser;
 use colored::*;
 use humansize::{format_size, DECIMAL};
 use std::io::{self, Write};
-use std::sync::Arc;
 use std::process;
+use std::sync::Arc;
 
 use mc::{
     cli::{Cli, Commands},
     config::Config,
+    engine::{ParallelCleaner, Scanner},
     patterns::PatternMatcher,
-    engine::{Scanner, ParallelCleaner},
     safety::SafetyGuard,
-    utils::{NoOpProgress, CompactDisplay, CategoryTracker, Progress},
+    utils::{CategoryTracker, CompactDisplay, NoOpProgress, Progress},
     Result,
 };
 
@@ -87,8 +87,7 @@ fn run() -> Result<()> {
     }
 
     // Validate path
-    let path = cli.path.canonicalize()
-        .map_err(|e| mc::McError::Io(e))?;
+    let path = cli.path.canonicalize().map_err(|e| mc::McError::Io(e))?;
 
     // Safety checks
     if config.safety.check_git_repo {
@@ -146,7 +145,8 @@ fn run() -> Result<()> {
     if !cli.quiet {
         println!();
         println!("{}", "━".repeat(50).bright_black());
-        println!("\n{} {} • {}",
+        println!(
+            "\n{} {} • {}",
             "Found".dimmed(),
             items.len().to_string().bright_white(),
             format_size(total_size, DECIMAL).bright_green()
@@ -180,7 +180,10 @@ fn run() -> Result<()> {
     } else {
         let display = CompactDisplay::new_for_cleaning(items.len() as u64);
         let worker_count = config.options.parallel_threads;
-        display.set_message(&format!("Cleaning ({} workers)", worker_count.to_string().bright_cyan()));
+        display.set_message(&format!(
+            "Cleaning ({} workers)",
+            worker_count.to_string().bright_cyan()
+        ));
         Arc::new(display) as Arc<dyn mc::Progress>
     };
 
@@ -227,7 +230,11 @@ fn handle_command(command: Commands, cli: &Cli) -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&items)?);
             } else {
                 for item in items {
-                    println!("{} ({})", item.path.display(), format_size(item.size, DECIMAL));
+                    println!(
+                        "{} ({})",
+                        item.path.display(),
+                        format_size(item.size, DECIMAL)
+                    );
                 }
             }
         }
@@ -238,7 +245,12 @@ fn handle_command(command: Commands, cli: &Cli) -> Result<()> {
             let config_path = if global {
                 directories::ProjectDirs::from("com", "mc", "mc")
                     .map(|dirs| dirs.config_dir().join("config.toml"))
-                    .ok_or_else(|| mc::McError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "Could not determine config directory")))?
+                    .ok_or_else(|| {
+                        mc::McError::Io(std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "Could not determine config directory",
+                        ))
+                    })?
             } else {
                 std::env::current_dir()?.join(".mc.toml")
             };
@@ -274,11 +286,13 @@ fn print_report(report: &mc::CleanReport) {
     println!();
 
     if report.dry_run {
-        println!("{} {} items",
+        println!(
+            "{} {} items",
             "✓".bright_green(),
             report.items_deleted.to_string().bright_white()
         );
-        println!("{} {} would be freed",
+        println!(
+            "{} {} would be freed",
             "✓".bright_green(),
             format_size(report.bytes_freed, DECIMAL).bright_green()
         );
@@ -292,11 +306,13 @@ fn print_report(report: &mc::CleanReport) {
             0.0
         };
 
-        println!("{} Cleaned {} items",
+        println!(
+            "{} Cleaned {} items",
             "✓".bright_green(),
             report.items_deleted.to_string().bright_white()
         );
-        println!("{} Freed {} in {:.1}s",
+        println!(
+            "{} Freed {} in {:.1}s",
             "✓".bright_green(),
             format_size(report.bytes_freed, DECIMAL).bright_green(),
             duration_secs
@@ -311,7 +327,8 @@ fn print_report(report: &mc::CleanReport) {
     if !report.scan_errors.is_empty() || !report.errors.is_empty() {
         println!();
         let total_errors = report.scan_errors.len() + report.errors.len();
-        println!("{} {} errors occurred",
+        println!(
+            "{} {} errors occurred",
             "⚠".yellow(),
             total_errors.to_string().yellow()
         );

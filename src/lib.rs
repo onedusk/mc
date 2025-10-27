@@ -22,7 +22,7 @@
 //!
 //! The cleaner operates in two main phases:
 //! 1.  **Scanning**: A [`Scanner`] traverses the file system from a given root path. It uses `walkdir` to gather directory entries and then processes them in parallel with `rayon` to identify items that match the configured patterns.
-//! 2.  **Cleaning**: The identified items are passed to a [`ParallelCleaner`], which uses a `rayon` thread pool to delete the files and directories concurrently. Errors are collected from worker threads into a final report using `crossbeam-channel`.
+//! 2.  **Cleaning**: The identified items are passed to a [`ParallelCleaner`], which reuses a dedicated `rayon` thread pool to delete the files and directories concurrently. Errors are gathered into a shared report the pool threads update as they work.
 //!
 //! This two-phase approach allows `mc` to first gather all targets and then present them to the user for confirmation (if required) before any destructive operations are performed.
 //!
@@ -56,20 +56,20 @@
 //! }
 //! ```
 
-pub mod types;
-pub mod config;
-pub mod patterns;
-pub mod engine;
-pub mod safety;
-pub mod utils;
 pub mod cli;
+pub mod config;
+pub mod engine;
+pub mod patterns;
+pub mod safety;
+pub mod types;
+pub mod utils;
 
-pub use types::{CleanItem, CleanReport, CleanError, McError, Result, PatternCategory};
-pub use config::{Config, PatternConfig, OptionsConfig, SafetyConfig};
+pub use config::{Config, OptionsConfig, PatternConfig, SafetyConfig};
+pub use engine::{prune_nested_items, ParallelCleaner, Scanner};
 pub use patterns::{PatternMatcher, BUILTIN_PATTERNS};
-pub use engine::{Scanner, ParallelCleaner, prune_nested_items};
 pub use safety::SafetyGuard;
-pub use utils::{Progress, ProgressReporter, NoOpProgress, CompactDisplay, CategoryTracker};
+pub use types::{CleanError, CleanItem, CleanReport, McError, PatternCategory, Result};
+pub use utils::{CategoryTracker, CompactDisplay, NoOpProgress, Progress, ProgressReporter};
 
 use std::path::Path;
 use std::sync::Arc;
@@ -252,7 +252,8 @@ mod tests {
         assert!(report.bytes_freed > 0);
 
         // Verify that files still exist
-        temp.child("node_modules").assert(predicates::path::exists());
+        temp.child("node_modules")
+            .assert(predicates::path::exists());
         temp.child("target").assert(predicates::path::exists());
         temp.child("app.log").assert(predicates::path::exists());
     }

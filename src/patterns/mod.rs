@@ -1,5 +1,5 @@
 pub mod builtin;
 pub mod matcher;
 
-pub use builtin::{BUILTIN_PATTERNS, PatternSet};
+pub use builtin::{PatternSet, BUILTIN_PATTERNS};
 pub use matcher::PatternMatcher;

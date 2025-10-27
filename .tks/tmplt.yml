@@ -1,0 +1,35 @@
+# NO MORE than 1 task per file, NO MORE / NO LESS than 6-8 subtasks per task
+id: "" # sequential / in logical order
+task: "" # high-level objective/task
+entry: "" # datetime
+modified: "" # datetime
+priority: "" # H | M | S
+project: "" # name
+status: "" # done | review | inbox | todo
+uuid: "" # most applicable version
+urgency: "" # 1 - 10
+subtasks: # REMEMBER: no more than 6-8
+  - desc: "" # describe the operation
+    agent: "" # name of assigned agent/subagent
+  - desc: "" # describe the operation
+    agent: "" # name of assigned agent/subagent
+  - desc: "" # describe the operation
+    agent: "" # name of assigned agent/subagent
+  - desc: "" # describe the operation
+    agent: "" # name of assigned agent/subagent
+  - desc: "" # describe the operation
+    agent: "" # name of assigned agent/subagent
+  - desc: "" # describe the operation
+    agent: "" # name of assigned agent/subagent
+  - desc: "" # describe the operation
+    agent: "" # name of assigned agent/subagent
+  - desc: "" # describe the operation
+    agent: "" # name of assigned agent/subagent
+must_reference: # include but not limited to:
+  [
+    "this could be a documentation file",
+    "this could be the objectives dependency file(s)",
+    "this could be the projects reference to protocols, standards, etc. that must be followed during implementation",
+  ]
+# the purpose of this is to have 0 ambiguity for the implementation agents meant for speed and not reasoning models
+# drop each .yml file created into this folder `.tks/todo/*.yml`

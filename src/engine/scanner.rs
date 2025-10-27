@@ -6,21 +6,19 @@
 //!
 //! # Implementation
 //!
-//! The scanning process is parallelized by first collecting all directory entries
-//! into a vector using `walkdir`, and then iterating over this collection in parallel
-//! with `rayon`. This allows multiple entries to be processed for pattern matching
-//! concurrently. The results are stored in a `DashMap` to handle concurrent writes
-//! from multiple threads.
+//! The scanning process streams directory entries using `walkdir` and the
+//! `rayon::par_bridge` adaptor so pattern matching and metadata collection can
+//! proceed in parallel without first materialising the entire tree in memory.
 
 use crate::patterns::PatternMatcher;
-use walkdir::{DirEntry, WalkDir};
-use rayon::prelude::*;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::fs;
-use dashmap::DashMap;
 use crate::types::{CleanItem, ItemType, ScanError};
-use crate::utils::progress::{Progress, CategoryTracker};
+use crate::utils::progress::{CategoryTracker, Progress};
+use rayon::prelude::*;
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
+use walkdir::WalkDir;
 
 /// A file system scanner that identifies items to be cleaned.
 ///
@@ -95,116 +93,221 @@ impl Scanner {
     /// of large directories with many entries, as the pattern matching for each entry
     /// can happen concurrently.
     pub fn scan(&self) -> crate::types::Result<(Vec<CleanItem>, Vec<ScanError>)> {
-        let items = Arc::new(DashMap::new());
-        let scan_errors = Arc::new(DashMap::new());
+        let matcher = Arc::clone(&self.matcher);
+        let progress = self.progress.clone();
+        let category_tracker = self.category_tracker.clone();
+        let root = self.root.clone();
 
-        // Collect entries first to enable parallel processing
-        let entries: Vec<_> = WalkDir::new(&self.root)
+        let accumulator = WalkDir::new(&self.root)
             .max_depth(self.max_depth)
             .follow_links(self.follow_symlinks)
             .into_iter()
-            .collect();
+            .par_bridge()
+            .fold(
+                || ScanAccumulator::default(),
+                |mut acc, entry_result| {
+                    match entry_result {
+                        Ok(entry) => {
+                            let path = entry.path();
+                            if path == root {
+                                return acc;
+                            }
 
-        // Process entries in parallel
-        entries.par_iter().for_each(|entry_result| {
-            match entry_result {
-                Ok(entry) => {
-                    if let Some(item) = self.process_entry(entry) {
-                        items.insert(item.path.clone(), item);
-                        if let Some(ref progress) = self.progress {
-                            progress.increment(1);
+                            let file_type = entry.file_type();
+
+                            let path_buf = path.to_path_buf();
+                            let pattern_match = matcher.matches_with_type(path, Some(file_type));
+
+                            let mut file_size = None;
+                            let mut metadata_available = true;
+                            let mut contributes_to_dir = false;
+                            let mut dir_base_size = None;
+
+                            if file_type.is_file() {
+                                match entry.metadata() {
+                                    Ok(metadata) => {
+                                        let size = metadata.len();
+                                        file_size = Some(size);
+                                        contributes_to_dir = true;
+                                    }
+                                    Err(err) => {
+                                        metadata_available = false;
+                                        acc.errors.push(ScanError::IoError {
+                                            path: path_buf.clone(),
+                                            message: err.to_string(),
+                                        });
+                                    }
+                                }
+                            } else if file_type.is_dir() {
+                                match entry.metadata() {
+                                    Ok(metadata) => {
+                                        dir_base_size = Some(metadata.len());
+                                    }
+                                    Err(err) => {
+                                        metadata_available = false;
+                                        acc.errors.push(ScanError::IoError {
+                                            path: path_buf.clone(),
+                                            message: err.to_string(),
+                                        });
+                                    }
+                                }
+                            } else if file_type.is_symlink() {
+                                match entry.metadata() {
+                                    Ok(metadata) => {
+                                        file_size = Some(metadata.len());
+                                        contributes_to_dir = metadata.is_file();
+                                    }
+                                    Err(err) => {
+                                        metadata_available = false;
+                                        acc.errors.push(ScanError::IoError {
+                                            path: path_buf.clone(),
+                                            message: err.to_string(),
+                                        });
+                                    }
+                                }
+                            }
+
+                            let item_type = determine_type(&file_type);
+
+                            if let Some(pattern_match) = pattern_match {
+                                if !matches!(item_type, ItemType::File | ItemType::Symlink)
+                                    || metadata_available
+                                {
+                                    if let Some(ref progress) = progress {
+                                        progress.increment(1);
+                                    }
+
+                                    let size = match item_type {
+                                        ItemType::File | ItemType::Symlink => {
+                                            file_size.unwrap_or(0)
+                                        }
+                                        ItemType::Directory => 0,
+                                    };
+
+                                    acc.items.push(CleanItem {
+                                        path: path_buf,
+                                        size,
+                                        item_type,
+                                        pattern: pattern_match,
+                                    });
+                                }
+                            }
+
+                            if let Some(size) = dir_base_size {
+                                acc.dir_bases.push((path.to_path_buf(), size));
+                            }
+
+                            // Record file sizes for directory aggregation even when the file
+                            // itself does not match a pattern.
+                            if contributes_to_dir {
+                                if let Some(size) = file_size {
+                                    acc.file_sizes.push((path.to_path_buf(), size));
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            let path = err.path().unwrap_or(&root).to_path_buf();
+                            let error = if err.loop_ancestor().is_some() {
+                                ScanError::SymlinkCycle { path }
+                            } else {
+                                ScanError::IoError {
+                                    path,
+                                    message: err.to_string(),
+                                }
+                            };
+                            acc.errors.push(error);
+                        }
+                    }
+
+                    acc
+                },
+            )
+            .reduce(
+                || ScanAccumulator::default(),
+                |mut acc, mut other| {
+                    acc.items.append(&mut other.items);
+                    acc.errors.append(&mut other.errors);
+                    acc.file_sizes.append(&mut other.file_sizes);
+                    acc.dir_bases.append(&mut other.dir_bases);
+                    acc
+                },
+            );
+
+        let ScanAccumulator {
+            mut items,
+            errors,
+            file_sizes,
+            dir_bases,
+        } = accumulator;
+
+        if !items.is_empty() {
+            let matched_dirs: HashSet<PathBuf> = items
+                .iter()
+                .filter_map(|item| {
+                    if matches!(item.item_type, ItemType::Directory) {
+                        Some(item.path.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if !matched_dirs.is_empty() {
+                let mut dir_sizes: HashMap<PathBuf, u64> =
+                    matched_dirs.into_iter().map(|path| (path, 0)).collect();
+
+                for (dir_path, base) in dir_bases {
+                    if let Some(total) = dir_sizes.get_mut(dir_path.as_path()) {
+                        *total += base;
+                    }
+                }
+
+                for (file_path, size) in file_sizes {
+                    for ancestor in file_path.ancestors().skip(1) {
+                        if !ancestor.starts_with(&root) {
+                            break;
+                        }
+                        if let Some(total) = dir_sizes.get_mut(ancestor) {
+                            *total += size;
                         }
                     }
                 }
-                Err(err) => {
-                    let path = err.path().unwrap_or(&self.root).to_path_buf();
-                    let error = if err.loop_ancestor().is_some() {
-                        ScanError::SymlinkCycle { path: path.clone() }
-                    } else {
-                        ScanError::IoError {
-                            path: path.clone(),
-                            message: err.to_string(),
+
+                for item in &mut items {
+                    if matches!(item.item_type, ItemType::Directory) {
+                        if let Some(size) = dir_sizes.get(&item.path) {
+                            item.size = *size;
                         }
-                    };
-                    scan_errors.insert(path, error);
+                    }
                 }
             }
-        });
-
-        // Convert Arc<DashMap> to Vec
-        let result_items: Vec<CleanItem> =
-            items.iter().map(|entry| entry.value().clone()).collect();
-        let result_errors: Vec<ScanError> = scan_errors
-            .iter()
-            .map(|entry| entry.value().clone())
-            .collect();
-
-        Ok((result_items, result_errors))
-    }
-
-    /// Processes a single directory entry to determine if it should be cleaned.
-    fn process_entry(&self, entry: &DirEntry) -> Option<CleanItem> {
-        let path = entry.path();
-
-        // Skip the root directory itself
-        if path == self.root {
-            return None;
         }
 
-        if let Some(pattern_match) = self.matcher.matches(path) {
-            let metadata = entry.metadata().ok()?;
-            let size = self.calculate_size(path, &metadata);
-
-            // Update category tracker if present
-            if let Some(ref tracker) = self.category_tracker {
-                tracker.add_item(pattern_match.category, size);
+        if let Some(tracker) = category_tracker {
+            for item in &items {
+                tracker.add_item(item.pattern.category, item.size);
             }
-
-            Some(CleanItem {
-                path: path.to_path_buf(),
-                size,
-                item_type: self.determine_type(&metadata),
-                pattern: pattern_match,
-            })
-        } else {
-            None
         }
+
+        Ok((items, errors))
     }
+}
 
-    /// Calculates the size of a file system item.
-    ///
-    /// For files, it returns the file size. For directories, it recursively calculates
-    /// the total size of all files within that directory.
-    ///
-    /// # Performance Considerations
-    ///
-    /// Calculating directory size can be an expensive operation, as it requires
-    /// traversing the entire subdirectory tree. This is one of the more
-    /// time-consuming parts of the scanning phase.
-    fn calculate_size(&self, path: &Path, metadata: &fs::Metadata) -> u64 {
-        if metadata.is_dir() {
-            // Calculate directory size recursively
-            WalkDir::new(path)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter_map(|e| e.metadata().ok())
-                .filter(|m| m.is_file())
-                .map(|m| m.len())
-                .sum()
-        } else {
-            metadata.len()
-        }
-    }
+#[derive(Default)]
+struct ScanAccumulator {
+    items: Vec<CleanItem>,
+    errors: Vec<ScanError>,
+    file_sizes: Vec<(PathBuf, u64)>,
+    dir_bases: Vec<(PathBuf, u64)>,
+}
 
-    /// Determines the `ItemType` of a file system item based on its metadata.
-    fn determine_type(&self, metadata: &fs::Metadata) -> ItemType {
-        if metadata.is_dir() {
-            ItemType::Directory
-        } else if metadata.is_symlink() {
-            ItemType::Symlink
-        } else {
-            ItemType::File
-        }
+fn determine_type(file_type: &fs::FileType) -> ItemType {
+    if file_type.is_dir() {
+        ItemType::Directory
+    } else if file_type.is_symlink() {
+        ItemType::Symlink
+    } else {
+        ItemType::File
     }
 }
 
@@ -215,7 +318,8 @@ mod tests {
     use assert_fs::prelude::*;
     use assert_fs::TempDir;
     use std::fs;
-    use std::os::unix::fs as unix_fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::{self as unix_fs, PermissionsExt};
     use std::sync::Arc;
 
     fn setup_test_dir() -> TempDir {
@@ -239,9 +343,7 @@ mod tests {
 
         assert_eq!(items.len(), 3);
         assert!(errors.is_empty());
-        assert!(items
-            .iter()
-            .any(|item| item.path.ends_with("node_modules")));
+        assert!(items.iter().any(|item| item.path.ends_with("node_modules")));
         assert!(items.iter().any(|item| item.path.ends_with("target")));
         assert!(items.iter().any(|item| item.path.ends_with("app.log")));
     }
@@ -252,10 +354,19 @@ mod tests {
         let restricted_dir = temp.child("restricted");
         restricted_dir.create_dir_all().unwrap();
 
-        // Set permissions to read-only
-        let mut perms = fs::metadata(restricted_dir.path()).unwrap().permissions();
-        perms.set_readonly(true);
-        fs::set_permissions(restricted_dir.path(), perms).unwrap();
+        // Remove execute permissions so the directory cannot be traversed.
+        #[cfg(unix)]
+        {
+            let mut perms = fs::metadata(restricted_dir.path()).unwrap().permissions();
+            perms.set_mode(0o000);
+            fs::set_permissions(restricted_dir.path(), perms).unwrap();
+        }
+        #[cfg(not(unix))]
+        {
+            let mut perms = fs::metadata(restricted_dir.path()).unwrap().permissions();
+            perms.set_readonly(true);
+            fs::set_permissions(restricted_dir.path(), perms).unwrap();
+        }
 
         let config = Config::default();
         let matcher = Arc::new(PatternMatcher::new(&config.patterns).unwrap());
@@ -267,6 +378,7 @@ mod tests {
         assert!(matches!(errors[0], ScanError::IoError { .. }));
     }
 
+    #[cfg(unix)]
     #[test]
     fn test_symlink_cycle_detection() {
         let temp = TempDir::new().unwrap();
@@ -279,7 +391,7 @@ mod tests {
 
         let config = Config::default();
         let matcher = Arc::new(PatternMatcher::new(&config.patterns).unwrap());
-        let scanner = Scanner::new(temp.path().to_path_buf(), matcher);
+        let scanner = Scanner::new(temp.path().to_path_buf(), matcher).with_symlinks(true);
 
         let (_, errors) = scanner.scan().unwrap();
 

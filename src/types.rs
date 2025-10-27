@@ -116,10 +116,7 @@ pub enum CleanError {
 
     /// A general I/O error that occurred during deletion.
     #[error("IO error at {path}: {message}")]
-    IoError {
-        path: PathBuf,
-        message: String,
-    },
+    IoError { path: PathBuf, message: String },
 
     /// An error related to parsing a glob pattern.
     #[error("Pattern error: {0}")]
@@ -131,10 +128,7 @@ pub enum CleanError {
 pub enum ScanError {
     /// An I/O error that occurred while accessing a path.
     #[error("IO error at {path}: {message}")]
-    IoError {
-        path: PathBuf,
-        message: String,
-    },
+    IoError { path: PathBuf, message: String },
     /// A symbolic link cycle was detected.
     #[error("Symbolic link cycle detected at {path}")]
     SymlinkCycle { path: PathBuf },

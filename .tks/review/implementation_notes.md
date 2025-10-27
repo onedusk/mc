@@ -71,16 +71,18 @@ The parallel processing is implemented using:
 
 2. **Parallel Iteration**:
    ```rust
-   items.par_chunks(self.chunk_size)
-       .for_each_with(error_tx.clone(), |tx, chunk| {
-           // Process each chunk in parallel
+   items
+       .par_iter()
+       .with_min_len(self.chunk_size)
+       .for_each(|item| {
+           // Process each item in parallel
        })
    ```
 
 3. **Concurrent Data Structures**:
    - `DashMap` for concurrent hash maps
    - `AtomicUsize` and `AtomicU64` for statistics
-   - `crossbeam_channel` for error collection
+   - `Mutex`-protected error accumulator shared across worker threads
 
 ### Why No Separate Parallel Module?
 

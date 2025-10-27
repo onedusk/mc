@@ -4,8 +4,8 @@
 //! and development environments, such as `node_modules`, `target`, `dist`, etc.
 //! The patterns are lazily initialized for efficiency using `once_cell`.
 
-use once_cell::sync::Lazy;
 use crate::types::PatternCategory;
+use once_cell::sync::Lazy;
 
 /// A lazily initialized static set of built-in patterns.
 ///
@@ -21,12 +21,10 @@ pub static BUILTIN_PATTERNS: Lazy<PatternSet> = Lazy::new(|| {
             (".next", PatternCategory::BuildOutputs),
             ("out", PatternCategory::BuildOutputs),
             ("target", PatternCategory::BuildOutputs),
-
             // Dependencies
             ("node_modules", PatternCategory::Dependencies),
             (".venv", PatternCategory::Dependencies),
             ("vendor", PatternCategory::Dependencies),
-
             // Cache
             (".turbo", PatternCategory::Cache),
             (".bun", PatternCategory::Cache),
@@ -35,7 +33,6 @@ pub static BUILTIN_PATTERNS: Lazy<PatternSet> = Lazy::new(|| {
             ("coverage", PatternCategory::Cache),
             (".ropeproject", PatternCategory::Cache),
             (".ruby-lsp", PatternCategory::Cache),
-
             // IDE and Tools
             (".idea", PatternCategory::IDE),
             (".flock", PatternCategory::IDE),
@@ -54,6 +51,7 @@ pub static BUILTIN_PATTERNS: Lazy<PatternSet> = Lazy::new(|| {
             ("bun.lock", PatternCategory::Cache),
             ("uv.lock", PatternCategory::Cache),
             ("Gemfile.lock", PatternCategory::Cache),
+            ("*.log", PatternCategory::Logs),
             ("claude-flow.bat", PatternCategory::IDE),
             ("claude-flow.ps1", PatternCategory::IDE),
             ("claude-flow.config.json", PatternCategory::IDE),
@@ -79,12 +77,18 @@ pub struct PatternSet {
 impl PatternSet {
     /// Returns all directories as a simple vector (for backward compatibility).
     pub fn directories(&self) -> Vec<&'static str> {
-        self.categorized_dirs.iter().map(|(name, _)| *name).collect()
+        self.categorized_dirs
+            .iter()
+            .map(|(name, _)| *name)
+            .collect()
     }
 
     /// Returns all files as a simple vector (for backward compatibility).
     pub fn files(&self) -> Vec<&'static str> {
-        self.categorized_files.iter().map(|(name, _)| *name).collect()
+        self.categorized_files
+            .iter()
+            .map(|(name, _)| *name)
+            .collect()
     }
 
     /// Gets the category for a given pattern.
