@@ -2,3 +2,6 @@ target/
 toc.xml
 jot.yaml
 Cargo.lock
+.jotignore
+.ctxt/
+.tks/

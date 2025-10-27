@@ -7,6 +7,7 @@ contributing: docs/CONTRIBUTING.md
 changelog: docs/CHANGELOG.md
 conduct: docs/CODE_OF_CONDUCT.md
 security: docs/SECURITY.md
+techspec: docs/TECHNICAL_SPEC.md
 ---
 
 # Mr. Cleann (mc)
@@ -15,12 +16,14 @@ A parallel build directory cleaner for modern development workflows.
 
 ## Features
 
-- **Fast**: Parallel processing with Rayon for maximum performance
+- **Fast**: Streaming scanner with parallel pattern matching and single-pass size aggregation
+- **Consistent**: Reuses a dedicated Rayon thread pool for predictable clean runtimes
 - **Safe by Default**: Dry-run mode, Git detection, and confirmation prompts
 - **Patterns**: Pre-configured patterns for common build artifacts
 - **Configurable**: TOML-based configuration with sensible defaults
 - **Detailed Statistics**: Track space freed and items cleaned
 - **Cross-Platform**: Works on Linux, macOS, and Windows
+- **Benchmark Ready**: Criterion suite (`cargo bench --bench performance`) to track regressions
 
 ## Installation
 
@@ -73,9 +76,6 @@ mc --config ./my-config.toml
 
 # Parallel threads control
 mc --parallel 8
-
-# Nuclear mode - includes dangerous operations
-mc --nuclear
 
 # Preserve environment files
 mc --preserve-env
@@ -157,12 +157,23 @@ mc config
 
 Mr. Cleann uses parallel processing to maximize performance:
 
-- Utilizes all CPU cores by default
-- Work-stealing scheduler via Rayon
-- Efficient I/O batching
-- Memory-efficient streaming for large directories
+- Utilizes all CPU cores by default with a reusable Rayon thread pool
+- Streams directory entries to avoid buffering entire trees in memory
+- Calculates directory sizes during the initial walk to reduce filesystem churn
+- Efficient I/O batching keeps deletions throughput-bound on SSDs
 
 Benchmarks show 5-10x speed improvement over sequential shell scripts on large codebases.
+
+## Benchmarking
+
+- Generate baselines with:
+
+  ```bash
+  cargo bench --bench performance
+  ```
+
+- Store Criterion reports under `docs/perf/<date>.md` (see `docs/TECHNICAL_SPEC.md`) or wire summaries into CI to catch regressions.
+- Capture real project timings with `cargo run -- --dry-run <path>` before and after changes to validate improvements.
 
 ## Examples
 
