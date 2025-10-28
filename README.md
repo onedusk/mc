@@ -7,7 +7,7 @@ contributing: docs/CONTRIBUTING.md
 changelog: docs/CHANGELOG.md
 conduct: docs/CODE_OF_CONDUCT.md
 security: docs/SECURITY.md
-techspec: docs/TECHNICAL_SPEC.md
+techspec: docs/dev/TECHNICAL_SPEC.md
 ---
 
 # Mr. Cleann (mc)
@@ -172,7 +172,7 @@ Benchmarks show 5-10x speed improvement over sequential shell scripts on large c
   cargo bench --bench performance
   ```
 
-- Store Criterion reports under `docs/perf/<date>.md` (see `docs/TECHNICAL_SPEC.md`) or wire summaries into CI to catch regressions.
+- Store Criterion reports under `docs/perf/<date>.md` (see `docs/dev/TECHNICAL_SPEC.md`) or wire summaries into CI to catch regressions.
 - Capture real project timings with `cargo run -- --dry-run <path>` before and after changes to validate improvements.
 
 ## Examples
@@ -211,14 +211,14 @@ mc --include "*.cache" --include "tmp/*" --exclude ".env"
 
 ## Documentation
 
-- [Product Requirements Document](docs/PRD.md)
-- [Architecture Guide](docs/ARCHITECTURE.md)
-- [Technical Specification](docs/TECHNICAL_SPEC.md)
-- [API Documentation](docs/API.md)
+- [Product Requirements Document](docs/dev/PRD.md)
+- [Architecture Guide](docs/dev/ARCHITECTURE.md)
+- [Technical Specification](docs/dev/TECHNICAL_SPEC.md)
+- [API Documentation](docs/dev/API.md)
 
 ## Contributing
 
-Contributions are welcome! Please read the documentation in the `docs/` folder to understand the architecture and follow the guidelines in [`AGENTS.md`](AGENTS.md) when contributing.
+Contributions are welcome! Please read the documentation in the `docs/` folder to understand the architecture and follow the guidelines in [`docs/AGENTS.md`](docs/AGENTS.md) when contributing.
 
 ## License
 
