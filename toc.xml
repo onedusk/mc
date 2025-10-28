@@ -1,6 +1,6 @@
 <toc version="1.0" llm-optimized="true">
   <metadata>
-    <totalDocs>7</totalDocs>
+    <totalDocs>1</totalDocs>
   </metadata>
   <sections>
     <section id="shared">
@@ -9,40 +9,10 @@
         <title>Packages</title>
         <section id="shared-packages-mc">
           <title>Mc</title>
-          <chapter id="shared-packages-mc-agents" path="shared/packages/mc/AGENTS.md" modified="2025-10-09T15:40:55Z" size="2499" words="353" readTime="1min" hash="sha256:55f18893b3c7052c">
-            <title>Repository Guidelines</title>
-            <summary>Repository Guidelines ## Project Structure &amp; Module Organization - Core entry point lives in `src/main.rs`, delegating to `mc::run` and orchestrating the CLI flow. - `src/cli` defines Clap parsers ...</summary>
-            <keywords>notes, types, commits, build, under, modules, defaults, module, tests, guidelines</keywords>
-          </chapter>
-          <chapter id="shared-packages-mc-claude" path="shared/packages/mc/CLAUDE.md" modified="2025-10-09T15:40:55Z" size="3884" words="525" readTime="2min" hash="sha256:bb60463ed41502df">
-            <title>CLAUDE.md</title>
-            <summary>CLAUDE.md This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. ## Overview Mr. Cleann (mc) is a high-performance parallel build directory cleaner...</summary>
-            <keywords>supports, configuration, **parallel, progress, handles, development, common, performance, file, args</keywords>
-          </chapter>
-          <chapter id="shared-packages-mc-code-of-conduct" path="shared/packages/mc/CODE_OF_CONDUCT.md" modified="2025-10-15T14:45:42Z" size="5202" words="710" readTime="2min" hash="sha256:88504558eb347056">
-            <title>Contributor Covenant Code of Conduct</title>
-            <summary>Contributor Covenant Code of Conduct ## Our Pledge We as members, contributors, and leaders pledge to make participation in our community a harassment-free experience for everyone, regardless of a...</summary>
-            <keywords>action, specified, they, individual, official, within, **consequence**, community, language, address</keywords>
-          </chapter>
-          <chapter id="shared-packages-mc-contributing" path="shared/packages/mc/CONTRIBUTING.md" modified="2025-10-15T14:46:49Z" size="1895" words="275" readTime="1min" hash="sha256:e83ce5f9dc7714aa">
-            <title>Contributing to Lowkey</title>
-            <summary>Contributing to Lowkey First off, thank you for considering contributing to Lowkey! It&apos;s people like you that make Lowkey such a great tool. ## Where do I go from here? If you&apos;ve noticed a bug or...</summary>
-            <keywords>please, first, make, [make, contributing, code, create, request, lowkey, thank</keywords>
-          </chapter>
-          <chapter id="shared-packages-mc-gemini" path="shared/packages/mc/GEMINI.md" modified="2025-10-09T15:40:55Z" size="3635" words="497" readTime="1min" hash="sha256:a6cf19f1d842be70">
-            <title>GEMINI.md</title>
-            <summary>GEMINI.md ## Project Overview This project is a high-performance, parallel build directory cleaner named &quot;Mr. Cleann&quot; (`mc`). It is a command-line interface (CLI) tool written in Rust, designed to...</summary>
-            <keywords>scanning, using, create, repository, dependencies, documentation, development, safety, crate, cleaning</keywords>
-          </chapter>
-          <chapter id="shared-packages-mc-readme" path="shared/packages/mc/README.md" modified="2025-10-09T15:40:55Z" size="4429" words="590" readTime="2min" hash="sha256:1aba7ab4615b698d">
+          <chapter id="shared-packages-mc-readme" path="shared/packages/mc/README.md" modified="2025-10-27T04:21:56Z" size="5096" words="677" readTime="2min" hash="sha256:32ac52cf43c457ce">
             <title>Mr. Cleann (mc)</title>
-            <summary>Mr. Cleann (mc) A parallel build directory cleaner for modern development workflows. ## Features - **Fast**: Parallel processing with Rayon for maximum performance - **Safe by Default**: Dry-run ...</summary>
-            <keywords>cleann, configuration, contributing, operations, build, preview, parallel, file, confirmation, directory</keywords>
-          </chapter>
-          <chapter id="shared-packages-mc-security" path="shared/packages/mc/SECURITY.md" modified="2025-10-15T14:48:20Z" size="619" words="100" readTime="1min" hash="sha256:ba9643955bfcb045">
-            <title>Security Policy</title>
-            <summary>Security Policy ## Supported Versions Use this section to tell people about which versions of your project are currently being supported with security updates. | Version | Supported | | ...</summary>
-            <keywords>expect, supported, tell, people, security, section, vulnerability, versions, white_check_mark</keywords>
+            <summary># Mr. Cleann (mc) A parallel build directory cleaner for modern development workflows. ## Features - **Fast**: Streaming scanner with parallel pattern matching and single-pass size aggregation - ...</summary>
+            <keywords>preview, file, project, cleaning, configuration, operations, documentation, files, changes, contributing</keywords>
           </chapter>
         </section>
       </section>
