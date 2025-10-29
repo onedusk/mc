@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+-   **Category Breakdown**: Category breakdown now shows accurate counts after pruning nested items. Previously displayed pre-pruning counts (all matched items) instead of post-pruning counts (items to be deleted), causing significant discrepancies in the summary output.
 -   **Pattern Coverage**: Restored the `*.log` builtin pattern to ensure logs continue to be detected by default.
 -   **Symlink Cycle Detection**: Regression tests now explicitly enable link following and record cycle errors emitted by WalkDir.
 -   **Permission Handling**: Test fixtures set restrictive UNIX permissions (0o000) guaranteeing permission-denied paths are surfaced in scan errors.

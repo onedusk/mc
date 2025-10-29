@@ -141,6 +141,12 @@ fn run() -> Result<()> {
     // Calculate total size
     let total_size: u64 = items.iter().map(|i| i.size).sum();
 
+    // Recalculate category tracker after pruning to show accurate breakdown
+    let pruned_category_tracker = Arc::new(CategoryTracker::new());
+    for item in &items {
+        pruned_category_tracker.add_item(item.pattern.category, item.size);
+    }
+
     // Show summary with category breakdown
     if !cli.quiet {
         println!();
@@ -153,8 +159,8 @@ fn run() -> Result<()> {
         );
 
         // Show category breakdown
-        if category_tracker.total_count() > 0 {
-            println!("  {}", category_tracker.format_breakdown());
+        if pruned_category_tracker.total_count() > 0 {
+            println!("  {}", pruned_category_tracker.format_breakdown());
         }
 
         println!();
