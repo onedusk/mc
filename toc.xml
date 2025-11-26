@@ -12,7 +12,7 @@
           <chapter id="shared-packages-mc-readme" path="shared/packages/mc/README.md" modified="2025-10-27T04:21:56Z" size="5096" words="677" readTime="2min" hash="sha256:32ac52cf43c457ce">
             <title>Mr. Cleann (mc)</title>
             <summary># Mr. Cleann (mc) A parallel build directory cleaner for modern development workflows. ## Features - **Fast**: Streaming scanner with parallel pattern matching and single-pass size aggregation - ...</summary>
-            <keywords>rayon, thread, usage, patterns, operations, cleann, pattern, clean, file, contributing</keywords>
+            <keywords>patterns, usage, files, operations, preview, clean, contributing, changes, default, directory</keywords>
           </chapter>
         </section>
       </section>
