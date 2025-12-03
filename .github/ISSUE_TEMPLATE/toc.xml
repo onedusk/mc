@@ -16,12 +16,12 @@
               <chapter id="shared-packages-mc-github-issue-template-bug-report" path="shared/packages/mc/.github/ISSUE_TEMPLATE/bug_report.md" modified="2025-10-15T14:48:43Z" size="732" words="112" readTime="1min" hash="sha256:4da20869fadb61ca">
                 <title>Untitled</title>
                 <summary>**Describe the bug** A clear and concise description of what the bug is. **To Reproduce** Steps to reproduce the behavior: 1. Go to &apos;...&apos; 2. Click on &apos;....&apos; 3. Scroll down to &apos;....&apos; 4. See error *...</summary>
-                <keywords>(please, clear, safari], concise, information):**, version, browser, following, problem, complete</keywords>
+                <keywords>browser, concise, complete, version, information):**, problem, following, (please, [e.g, safari]</keywords>
               </chapter>
               <chapter id="shared-packages-mc-github-issue-template-feature-request" path="shared/packages/mc/.github/ISSUE_TEMPLATE/feature_request.md" modified="2025-10-15T14:48:43Z" size="490" words="72" readTime="1min" hash="sha256:c612e79a7b409a58">
                 <title>Untitled</title>
                 <summary>**Is your feature request related to a problem? Please describe.** A clear and concise description of what the problem is. Ex. I&apos;m always frustrated when [...] **Describe the solution you&apos;d like** ...</summary>
-                <keywords>clear, problem, request, you&apos;ve, concise, description, feature, **describe</keywords>
+                <keywords>clear, you&apos;ve, feature, request, **describe, description, problem, concise</keywords>
               </chapter>
             </section>
           </section>
