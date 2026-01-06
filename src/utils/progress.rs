@@ -12,6 +12,7 @@ use humansize::{format_size, DECIMAL};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 /// A trait for progress reporters.
 ///
@@ -25,6 +26,68 @@ pub trait Progress: Send + Sync {
     fn set_message(&self, msg: &str);
     /// Finishes the progress reporting, typically hiding the indicator.
     fn finish(&self);
+}
+
+/// Thread-safe statistics for scan operations.
+#[derive(Default)]
+pub struct ScanStats {
+    /// Total entries walked (files + dirs)
+    pub entries_scanned: AtomicUsize,
+    /// Directories traversed
+    pub dirs_scanned: AtomicUsize,
+    /// Files examined
+    pub files_scanned: AtomicUsize,
+    /// Items matched for cleaning
+    pub items_matched: AtomicUsize,
+    /// Bytes matched for cleaning
+    pub bytes_matched: AtomicU64,
+}
+
+impl ScanStats {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[inline]
+    pub fn inc_entry(&self) {
+        self.entries_scanned.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub fn inc_dir(&self) {
+        self.dirs_scanned.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub fn inc_file(&self) {
+        self.files_scanned.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub fn inc_matched(&self, size: u64) {
+        self.items_matched.fetch_add(1, Ordering::Relaxed);
+        self.bytes_matched.fetch_add(size, Ordering::Relaxed);
+    }
+
+    pub fn entries(&self) -> usize {
+        self.entries_scanned.load(Ordering::Relaxed)
+    }
+
+    pub fn dirs(&self) -> usize {
+        self.dirs_scanned.load(Ordering::Relaxed)
+    }
+
+    pub fn files(&self) -> usize {
+        self.files_scanned.load(Ordering::Relaxed)
+    }
+
+    pub fn matched(&self) -> usize {
+        self.items_matched.load(Ordering::Relaxed)
+    }
+
+    pub fn matched_bytes(&self) -> u64 {
+        self.bytes_matched.load(Ordering::Relaxed)
+    }
 }
 
 /// A progress reporter that displays a visual progress bar in the console.
@@ -168,7 +231,9 @@ impl CategoryTracker {
 pub struct CompactDisplay {
     bar: ProgressBar,
     category_tracker: Arc<CategoryTracker>,
-    dirs_scanned: AtomicUsize,
+    scan_stats: Arc<ScanStats>,
+    start_time: Instant,
+    last_update: AtomicU64,
 }
 
 impl CompactDisplay {
@@ -180,11 +245,14 @@ impl CompactDisplay {
                 .unwrap()
                 .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
+        bar.enable_steady_tick(std::time::Duration::from_millis(80));
 
         Self {
             bar,
             category_tracker,
-            dirs_scanned: AtomicUsize::new(0),
+            scan_stats: Arc::new(ScanStats::new()),
+            start_time: Instant::now(),
+            last_update: AtomicU64::new(0),
         }
     }
 
@@ -200,37 +268,98 @@ impl CompactDisplay {
         Self {
             bar,
             category_tracker: Arc::new(CategoryTracker::new()),
-            dirs_scanned: AtomicUsize::new(0),
+            scan_stats: Arc::new(ScanStats::new()),
+            start_time: Instant::now(),
+            last_update: AtomicU64::new(0),
         }
     }
 
-    /// Increments the directory count for scanning
+    /// Gets the shared scan stats for parallel updates
+    pub fn get_scan_stats(&self) -> Arc<ScanStats> {
+        Arc::clone(&self.scan_stats)
+    }
+
+    /// Increments the directory count for scanning (called from parallel threads)
     pub fn inc_dirs(&self) {
-        self.dirs_scanned.fetch_add(1, Ordering::Relaxed);
-        self.update_scan_display();
+        self.scan_stats.inc_dir();
+        self.maybe_update_display();
+    }
+
+    /// Called from parallel threads to update scan progress
+    pub fn inc_entry(&self, is_dir: bool) {
+        self.scan_stats.inc_entry();
+        if is_dir {
+            self.scan_stats.inc_dir();
+        } else {
+            self.scan_stats.inc_file();
+        }
+        self.maybe_update_display();
+    }
+
+    /// Throttled display update (avoids UI thrashing)
+    fn maybe_update_display(&self) {
+        let now_ms = self.start_time.elapsed().as_millis() as u64;
+        let last = self.last_update.load(Ordering::Relaxed);
+        // Update at most every 50ms
+        if now_ms.saturating_sub(last) > 50
+            && self.last_update.compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed).is_ok()
+        {
+            self.update_scan_display();
+        }
     }
 
     /// Updates the scanning display with current statistics
     fn update_scan_display(&self) {
-        let dirs = self.dirs_scanned.load(Ordering::Relaxed);
-        let items = self.category_tracker.total_count();
+        let stats = &self.scan_stats;
+        let entries = stats.entries();
+        let dirs = stats.dirs();
+        let matched = self.category_tracker.total_count();
+        let matched_size = self.category_tracker.total_size();
+        let elapsed = self.start_time.elapsed().as_secs_f64();
+
+        // Calculate scan rate
+        let rate = if elapsed > 0.0 {
+            (entries as f64 / elapsed) as usize
+        } else {
+            0
+        };
 
         let line1 = format!(
-            "{}  {} found • {} dirs scanned",
+            "{}  {} found ({}) • {} entries ({}/s)",
             "Scanning".bright_blue(),
-            items.to_string().bright_white(),
-            dirs.to_string().dimmed()
+            matched.to_string().bright_white(),
+            format_size(matched_size, DECIMAL).bright_green(),
+            dirs.to_string().dimmed(),
+            rate.to_string().dimmed()
         );
 
         let line2 = self.category_tracker.format_breakdown();
 
         // Combine into message
-        self.bar.set_message(format!("{}\n  {}", line1, line2));
-        self.bar.tick();
+        if line2.is_empty() {
+            self.bar.set_message(line1);
+        } else {
+            self.bar.set_message(format!("{}\n  {}", line1, line2));
+        }
+    }
+
+    /// Force a final display update
+    pub fn force_update(&self) {
+        self.update_scan_display();
     }
 
     pub fn get_tracker(&self) -> Arc<CategoryTracker> {
         Arc::clone(&self.category_tracker)
+    }
+
+    /// Returns the elapsed time since creation
+    pub fn elapsed(&self) -> std::time::Duration {
+        self.start_time.elapsed()
+    }
+
+    /// Returns total entries scanned
+    pub fn entries_scanned(&self) -> usize {
+        self.scan_stats.entries()
     }
 }
 
@@ -247,3 +376,4 @@ impl Progress for CompactDisplay {
         self.bar.finish_and_clear();
     }
 }
+

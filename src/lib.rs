@@ -68,8 +68,8 @@ pub use config::{Config, OptionsConfig, PatternConfig, SafetyConfig};
 pub use engine::{prune_nested_items, ParallelCleaner, Scanner};
 pub use patterns::{PatternMatcher, BUILTIN_PATTERNS};
 pub use safety::SafetyGuard;
-pub use types::{CleanError, CleanItem, CleanReport, McError, PatternCategory, Result};
-pub use utils::{CategoryTracker, CompactDisplay, NoOpProgress, Progress, ProgressReporter};
+pub use types::{CleanError, CleanItem, CleanReport, ItemType, McError, PatternCategory, PatternMatch, PatternSource, Result};
+pub use utils::{CategoryTracker, CompactDisplay, NoOpProgress, Progress, ProgressReporter, ScanStats};
 
 use std::path::Path;
 use std::sync::Arc;
@@ -167,7 +167,9 @@ impl Cleaner {
             println!("🔍 Scanning for files to clean...");
         }
 
-        let (items, scan_errors) = scanner.scan()?;
+        let scan_start = std::time::Instant::now();
+        let (items, scan_errors, entries_scanned) = scanner.scan()?;
+        let scan_duration = scan_start.elapsed();
 
         // Prune nested items to avoid redundant deletions
         let items = prune_nested_items(items);
@@ -178,6 +180,8 @@ impl Cleaner {
             }
             let mut report = CleanReport::default();
             report.scan_errors = scan_errors;
+            report.scan_duration = scan_duration;
+            report.entries_scanned = entries_scanned;
             return Ok(report);
         }
 
@@ -197,6 +201,8 @@ impl Cleaner {
         // Perform cleaning
         let mut report = cleaner.clean(items)?;
         report.scan_errors = scan_errors;
+        report.scan_duration = scan_duration;
+        report.entries_scanned = entries_scanned;
 
         // Finish progress
         progress.finish();

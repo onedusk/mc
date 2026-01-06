@@ -11,20 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -   **Technical Spec**: Added `docs/TECHNICAL_SPEC.md` outlining the performance-critical pipeline, tuning knobs, and validation checklist.
 -   **Benchmarks**: Introduced `benches/performance.rs` (Criterion) to track scanner and pruning regressions via `cargo bench --bench performance`.
+-   **Live Scan Progress**: New `ScanStats` struct provides real-time scan metrics via lock-free atomic counters, enabling live entries/second display during parallel scans.
+-   **Enhanced CleanReport**: Added `scan_duration`, `dirs_deleted`, `files_deleted`, and `entries_scanned` fields to `CleanReport` for comprehensive operation metrics.
+-   **Agent Docs**: Generated `.agent-docs/` directory with PROJECT_OVERVIEW.md, FILE_PURPOSE_INDEX.md, RELATIONSHIP_MAP.md, CODE_PATTERNS.md, and WORKING_NOTES.md for AI-assisted development.
 
 ### Changed
 
--   **Streaming Scanner**: Reworked `Scanner::scan` to stream `WalkDir` entries with `par_bridge`, accumulate file sizes in a single traversal, and aggregate directory totals without per-directory re-walks.
+-   **Streaming Scanner**: Reworked `Scanner::scan` to stream `WalkDir` entries with `par_bridge`, accumulate file sizes in a single traversal, and aggregate directory totals without per-directory re-walks. Now returns a 3-tuple `(items, errors, entries_scanned)`.
 -   **Pattern Matching**: `PatternMatcher::matches_with_type` now accepts an optional `FileType`, removing redundant metadata syscalls during scans while keeping the public API intact.
 -   **Parallel Cleaner**: `ParallelCleaner` reuses a dedicated Rayon thread pool, processes items with `par_iter().with_min_len(...)`, and collects errors through a shared mutex-backed buffer instead of crossbeam channels.
 -   **Nested Item Pruning**: `prune_nested_items` keeps the original behaviour but now prunes ancestors in linear time using a rolling `HashSet` of kept paths.
 -   **Test Suite**: Permission and symlink-cycle tests updated to reflect the new streaming scanner and UNIX-specific behaviours.
+-   **Improved Metrics Display**: CLI output now shows:
+    -   Scan rate with entries/second during scanning phase
+    -   Files vs directories breakdown (e.g., "Found 5 (3 dirs, 2 files)")
+    -   Timing breakdown showing scan, clean, and total duration
+    -   Throughput metrics showing MB/s and items/s
+-   **CompactDisplay Enhancements**: Added throttled UI updates (50ms intervals) to avoid terminal thrashing during fast scans, steady-tick spinner at 80ms, and `force_update()` for final scan summary.
 
 ### Performance
 
 -   **Lower Latency Scans**: Single-pass metadata collection eliminates recursive directory walks and significantly reduces filesystem IO.
 -   **Reduced Overhead**: Reused Rayon pool removes per-run thread pool rebuild costs and improves scaling on SSD-heavy workloads.
 -   **Benchmark Guidance**: Criterion suite documents expected usage and storage of baseline runs in the technical spec.
+-   **Throttled Progress Updates**: Live scan display updates at most every 50ms, preventing UI thrashing on fast SSDs while maintaining responsive feedback.
 
 ### Fixed
 
@@ -32,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -   **Pattern Coverage**: Restored the `*.log` builtin pattern to ensure logs continue to be detected by default.
 -   **Symlink Cycle Detection**: Regression tests now explicitly enable link following and record cycle errors emitted by WalkDir.
 -   **Permission Handling**: Test fixtures set restrictive UNIX permissions (0o000) guaranteeing permission-denied paths are surfaced in scan errors.
+-   **Scan Metrics Accuracy**: "Dirs scanned" counter now properly tracks directory traversal; previously the counter was never incremented during scans.
 
 ## [0.2.0] - 2025-10-12
 
@@ -225,21 +236,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [ ] Binary releases for all platforms
 - [ ] Package manager distribution (Homebrew, AUR, Chocolatey)
 - [ ] Integration tests
-- [ ] Performance benchmarks
+- [x] Performance benchmarks (Criterion suite in `benches/performance.rs`)
 - [ ] Cloud storage cleaning support
 - [ ] Undo functionality
 - [ ] GUI version
 - [ ] IDE/editor plugins
 - [ ] Scheduled cleaning via cron
-- [ ] Space estimation before cleaning
+- [x] Space estimation before cleaning (shown in dry-run and scan summary)
 - [ ] Custom hooks for pre/post cleaning
+- [ ] Auto-tuning chunk size based on storage type (SSD vs HDD)
+- [ ] Bloom filter for O(1) ancestor path lookups
 
 ### Known Limitations
 
-- Tests not yet implemented
-- Some compilation warnings present
-- Platform-specific features need testing
-- Performance benchmarks pending
+- [x] ~~Tests not yet implemented~~ Full test suite added in v0.2.0
+- Some minor clippy warnings present (style suggestions)
+- Platform-specific features need broader testing
+- [x] ~~Performance benchmarks pending~~ Criterion benchmarks available
 
 ## Migration Guide
 

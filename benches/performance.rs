@@ -45,8 +45,8 @@ fn bench_scanner(c: &mut Criterion) {
 
     c.bench_function("scanner_scan_synthetic_tree", |b| {
         b.iter(|| {
-            let (items, errors) = scanner.scan().expect("scan succeeds");
-            black_box((items.len(), errors.len()));
+            let (items, errors, entries) = scanner.scan().expect("scan succeeds");
+            black_box((items.len(), errors.len(), entries));
         });
     });
 }

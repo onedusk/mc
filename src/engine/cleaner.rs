@@ -176,7 +176,11 @@ impl ParallelCleaner {
             errors,
             scan_errors: Vec::new(),
             duration: start.elapsed(),
+            scan_duration: std::time::Duration::ZERO,
             dry_run: false,
+            dirs_deleted: 0,  // Set by caller
+            files_deleted: 0, // Set by caller
+            entries_scanned: 0, // Set by caller
         })
     }
 
@@ -272,13 +276,20 @@ impl ParallelCleaner {
             format_size(total_size, DECIMAL).bright_green()
         );
 
+        let dir_count = directories.len();
+        let file_count = files.len();
+
         Ok(CleanReport {
             items_deleted: items.len(),
             bytes_freed: total_size,
             errors: Vec::new(),
             scan_errors: Vec::new(),
             duration: std::time::Duration::ZERO,
+            scan_duration: std::time::Duration::ZERO,
             dry_run: true,
+            dirs_deleted: dir_count,
+            files_deleted: file_count,
+            entries_scanned: 0, // Set by caller
         })
     }
 }

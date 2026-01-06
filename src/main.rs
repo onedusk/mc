@@ -110,15 +110,19 @@ fn run() -> Result<()> {
 
     // Create category tracker and compact display for scanning
     let category_tracker = Arc::new(CategoryTracker::new());
-    let (items, scan_errors) = if !cli.quiet {
+    let scan_start = std::time::Instant::now();
+    let (items, scan_errors, entries_scanned) = if !cli.quiet {
         let display = CompactDisplay::new_for_scanning(Arc::clone(&category_tracker));
+        let scan_stats = display.get_scan_stats();
 
         let scanner = Scanner::new(path.clone(), matcher)
             .with_max_depth(config.safety.max_depth)
             .with_symlinks(!config.options.preserve_symlinks)
-            .with_category_tracker(Arc::clone(&category_tracker));
+            .with_category_tracker(Arc::clone(&category_tracker))
+            .with_scan_stats(scan_stats);
 
         let result = scanner.scan()?;
+        display.force_update();
         display.finish();
         result
     } else {
@@ -127,6 +131,7 @@ fn run() -> Result<()> {
             .with_symlinks(!config.options.preserve_symlinks);
         scanner.scan()?
     };
+    let scan_duration = scan_start.elapsed();
 
     // Prune nested items to avoid redundant deletions
     let items = mc::prune_nested_items(items);
@@ -138,8 +143,10 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
-    // Calculate total size
+    // Calculate total size and count files/dirs
     let total_size: u64 = items.iter().map(|i| i.size).sum();
+    let dir_count = items.iter().filter(|i| matches!(i.item_type, mc::types::ItemType::Directory)).count();
+    let file_count = items.len() - dir_count;
 
     // Recalculate category tracker after pruning to show accurate breakdown
     let pruned_category_tracker = Arc::new(CategoryTracker::new());
@@ -151,10 +158,25 @@ fn run() -> Result<()> {
     if !cli.quiet {
         println!();
         println!("{}", "━".repeat(50).bright_black());
+        
+        // Show scan stats
+        let scan_secs = scan_duration.as_secs_f64();
+        let scan_rate = if scan_secs > 0.0 { entries_scanned as f64 / scan_secs } else { 0.0 };
         println!(
-            "\n{} {} • {}",
+            "{} {} entries in {:.2}s ({:.0}/s)",
+            "Scanned".dimmed(),
+            entries_scanned.to_string().dimmed(),
+            scan_secs,
+            scan_rate
+        );
+        
+        // Show found items breakdown
+        println!(
+            "\n{} {} ({} dirs, {} files) • {}",
             "Found".dimmed(),
             items.len().to_string().bright_white(),
+            dir_count.to_string().bright_cyan(),
+            file_count.to_string().bright_cyan(),
             format_size(total_size, DECIMAL).bright_green()
         );
 
@@ -198,8 +220,12 @@ fn run() -> Result<()> {
         .with_dry_run(cli.dry_run)
         .with_progress(progress.clone());
 
-    let mut report = cleaner.clean(items)?;
+    let mut report = cleaner.clean(items.clone())?;
     report.scan_errors = scan_errors;
+    report.scan_duration = scan_duration;
+    report.entries_scanned = entries_scanned;
+    report.dirs_deleted = items.iter().filter(|i| matches!(i.item_type, mc::types::ItemType::Directory)).count();
+    report.files_deleted = items.len() - report.dirs_deleted;
 
     progress.finish();
 
@@ -230,7 +256,7 @@ fn handle_command(command: Commands, cli: &Cli) -> Result<()> {
 
             let matcher = Arc::new(PatternMatcher::new(&config.patterns)?);
             let scanner = Scanner::new(path, matcher);
-            let (items, _scan_errors) = scanner.scan()?;
+            let (items, _scan_errors, _entries_scanned) = scanner.scan()?;
 
             if json {
                 println!("{}", serde_json::to_string_pretty(&items)?);
@@ -292,10 +318,13 @@ fn print_report(report: &mc::CleanReport) {
     println!();
 
     if report.dry_run {
+        // Show breakdown for dry run
         println!(
-            "{} {} items",
+            "{} {} items ({} dirs, {} files)",
             "✓".bright_green(),
-            report.items_deleted.to_string().bright_white()
+            report.items_deleted.to_string().bright_white(),
+            report.dirs_deleted.to_string().bright_cyan(),
+            report.files_deleted.to_string().bright_cyan()
         );
         println!(
             "{} {} would be freed",
@@ -304,28 +333,53 @@ fn print_report(report: &mc::CleanReport) {
         );
         println!("\n{}", "Dry run complete!".yellow());
     } else {
-        // Calculate throughput
-        let duration_secs = report.duration.as_secs_f64();
-        let mb_per_sec = if duration_secs > 0.0 {
-            (report.bytes_freed as f64 / duration_secs) / 1_000_000.0
+        // Calculate throughput metrics
+        let clean_secs = report.duration.as_secs_f64();
+        let total_secs = report.scan_duration.as_secs_f64() + clean_secs;
+        let mb_per_sec = if clean_secs > 0.0 {
+            (report.bytes_freed as f64 / clean_secs) / 1_000_000.0
+        } else {
+            0.0
+        };
+        let items_per_sec = if clean_secs > 0.0 {
+            report.items_deleted as f64 / clean_secs
         } else {
             0.0
         };
 
+        // Show breakdown
         println!(
-            "{} Cleaned {} items",
+            "{} Cleaned {} items ({} dirs, {} files)",
             "✓".bright_green(),
-            report.items_deleted.to_string().bright_white()
+            report.items_deleted.to_string().bright_white(),
+            report.dirs_deleted.to_string().bright_cyan(),
+            report.files_deleted.to_string().bright_cyan()
         );
         println!(
-            "{} Freed {} in {:.1}s",
+            "{} Freed {}",
             "✓".bright_green(),
-            format_size(report.bytes_freed, DECIMAL).bright_green(),
-            duration_secs
+            format_size(report.bytes_freed, DECIMAL).bright_green()
         );
-        if mb_per_sec > 0.0 {
-            println!("  {:.1} MB/s", mb_per_sec.to_string().bright_cyan());
+        
+        // Show timing breakdown
+        println!(
+            "{} Scan: {:.2}s • Clean: {:.2}s • Total: {:.2}s",
+            "⏱".dimmed(),
+            report.scan_duration.as_secs_f64(),
+            clean_secs,
+            total_secs
+        );
+        
+        // Show throughput
+        if mb_per_sec > 0.0 || items_per_sec > 0.0 {
+            println!(
+                "  {} {:.1} MB/s • {:.0} items/s",
+                "↳".dimmed(),
+                mb_per_sec,
+                items_per_sec
+            );
         }
+        
         println!("\n{}", "Done!".green());
     }
 

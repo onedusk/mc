@@ -101,8 +101,16 @@ pub struct CleanReport {
     pub scan_errors: Vec<ScanError>,
     /// The total duration of the cleaning operation.
     pub duration: Duration,
+    /// The duration of the scanning phase.
+    pub scan_duration: Duration,
     /// A flag indicating whether the operation was a dry run.
     pub dry_run: bool,
+    /// Number of directories deleted.
+    pub dirs_deleted: usize,
+    /// Number of files deleted.
+    pub files_deleted: usize,
+    /// Total entries scanned during the scan phase.
+    pub entries_scanned: usize,
 }
 
 /// An error that can occur during the cleaning of a single item.

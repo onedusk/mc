@@ -12,11 +12,12 @@
 
 use crate::patterns::PatternMatcher;
 use crate::types::{CleanItem, ItemType, ScanError};
-use crate::utils::progress::{CategoryTracker, Progress};
+use crate::utils::progress::{CategoryTracker, Progress, ScanStats};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use walkdir::WalkDir;
 
@@ -38,6 +39,8 @@ pub struct Scanner {
     progress: Option<Arc<dyn Progress>>,
     /// An optional category tracker for aggregating statistics.
     category_tracker: Option<Arc<CategoryTracker>>,
+    /// An optional scan stats tracker for live progress.
+    scan_stats: Option<Arc<ScanStats>>,
 }
 
 impl Scanner {
@@ -55,6 +58,7 @@ impl Scanner {
             follow_symlinks: false,
             progress: None,
             category_tracker: None,
+            scan_stats: None,
         }
     }
 
@@ -82,6 +86,12 @@ impl Scanner {
         self
     }
 
+    /// Attaches scan stats for live progress tracking.
+    pub fn with_scan_stats(mut self, stats: Arc<ScanStats>) -> Self {
+        self.scan_stats = Some(stats);
+        self
+    }
+
     /// Performs the file system scan.
     ///
     /// This method walks the directory tree from the root, processes entries in parallel,
@@ -92,11 +102,14 @@ impl Scanner {
     /// The use of `rayon` for parallel processing can significantly speed up the scanning
     /// of large directories with many entries, as the pattern matching for each entry
     /// can happen concurrently.
-    pub fn scan(&self) -> crate::types::Result<(Vec<CleanItem>, Vec<ScanError>)> {
+    pub fn scan(&self) -> crate::types::Result<(Vec<CleanItem>, Vec<ScanError>, usize)> {
         let matcher = Arc::clone(&self.matcher);
         let progress = self.progress.clone();
         let category_tracker = self.category_tracker.clone();
+        let scan_stats = self.scan_stats.clone();
         let root = self.root.clone();
+        let entries_counter = Arc::new(AtomicUsize::new(0));
+        let entries_counter_clone = Arc::clone(&entries_counter);
 
         let accumulator = WalkDir::new(&self.root)
             .max_depth(self.max_depth)
@@ -106,6 +119,9 @@ impl Scanner {
             .fold(
                 || ScanAccumulator::default(),
                 |mut acc, entry_result| {
+                    // Track entries scanned
+                    entries_counter_clone.fetch_add(1, Ordering::Relaxed);
+
                     match entry_result {
                         Ok(entry) => {
                             let path = entry.path();
@@ -114,6 +130,16 @@ impl Scanner {
                             }
 
                             let file_type = entry.file_type();
+
+                            // Update scan stats for live progress
+                            if let Some(ref stats) = scan_stats {
+                                stats.inc_entry();
+                                if file_type.is_dir() {
+                                    stats.inc_dir();
+                                } else {
+                                    stats.inc_file();
+                                }
+                            }
 
                             let path_buf = path.to_path_buf();
                             let pattern_match = matcher.matches_with_type(path, Some(file_type));
@@ -183,6 +209,11 @@ impl Scanner {
                                         }
                                         ItemType::Directory => 0,
                                     };
+
+                                    // Track matched item in scan stats
+                                    if let Some(ref stats) = scan_stats {
+                                        stats.inc_matched(size);
+                                    }
 
                                     acc.items.push(CleanItem {
                                         path: path_buf,
@@ -289,7 +320,8 @@ impl Scanner {
             }
         }
 
-        Ok((items, errors))
+        let entries_scanned = entries_counter.load(Ordering::Relaxed);
+        Ok((items, errors, entries_scanned))
     }
 }
 
@@ -339,10 +371,11 @@ mod tests {
         let matcher = Arc::new(PatternMatcher::new(&config.patterns).unwrap());
         let scanner = Scanner::new(temp.path().to_path_buf(), matcher);
 
-        let (items, errors) = scanner.scan().unwrap();
+        let (items, errors, entries_scanned) = scanner.scan().unwrap();
 
         assert_eq!(items.len(), 3);
         assert!(errors.is_empty());
+        assert!(entries_scanned > 0);
         assert!(items.iter().any(|item| item.path.ends_with("node_modules")));
         assert!(items.iter().any(|item| item.path.ends_with("target")));
         assert!(items.iter().any(|item| item.path.ends_with("app.log")));
@@ -372,7 +405,7 @@ mod tests {
         let matcher = Arc::new(PatternMatcher::new(&config.patterns).unwrap());
         let scanner = Scanner::new(temp.path().to_path_buf(), matcher);
 
-        let (_, errors) = scanner.scan().unwrap();
+        let (_, errors, _) = scanner.scan().unwrap();
 
         assert!(!errors.is_empty());
         assert!(matches!(errors[0], ScanError::IoError { .. }));
@@ -393,7 +426,7 @@ mod tests {
         let matcher = Arc::new(PatternMatcher::new(&config.patterns).unwrap());
         let scanner = Scanner::new(temp.path().to_path_buf(), matcher).with_symlinks(true);
 
-        let (_, errors) = scanner.scan().unwrap();
+        let (_, errors, _) = scanner.scan().unwrap();
 
         assert!(!errors.is_empty());
         assert!(matches!(errors[0], ScanError::SymlinkCycle { .. }));

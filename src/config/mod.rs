@@ -153,10 +153,8 @@ impl Config {
                 if !self.patterns.files.contains(&pattern) {
                     self.patterns.files.push(pattern);
                 }
-            } else {
-                if !self.patterns.directories.contains(&pattern) {
-                    self.patterns.directories.push(pattern);
-                }
+            } else if !self.patterns.directories.contains(&pattern) {
+                self.patterns.directories.push(pattern);
             }
         }
 
