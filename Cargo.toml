@@ -1,6 +1,6 @@
 [package]
 name = "mc"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["Mr. Cleann Contributors"]
 description = "A high-performance build directory cleaner for modern development workflows"
