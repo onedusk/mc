@@ -72,7 +72,7 @@ impl ParallelCleaner {
             .expect("failed to build rayon thread pool");
         Self {
             thread_count,
-            chunk_size: 100,
+            chunk_size: 1,
             thread_pool: Arc::new(thread_pool),
             dry_run: false,
             progress: None,
@@ -125,10 +125,15 @@ impl ParallelCleaner {
     /// A `CleanReport` summarizing the results of the operation. Errors that occur
     /// during file deletion are collected and included in the report, but they do
     /// not stop the entire cleaning process.
-    pub fn clean(&self, items: Vec<CleanItem>) -> crate::types::Result<CleanReport> {
+    pub fn clean(&self, mut items: Vec<CleanItem>) -> crate::types::Result<CleanReport> {
         if self.dry_run {
             return self.dry_run_clean(items);
         }
+
+        // Sort by size descending so large directories start processing first.
+        // This improves parallelization by avoiding the scenario where one thread
+        // grinds through a huge directory at the end while others sit idle.
+        items.sort_by(|a, b| b.size.cmp(&a.size));
 
         self.stats.items_deleted.store(0, Ordering::Relaxed);
         self.stats.bytes_freed.store(0, Ordering::Relaxed);

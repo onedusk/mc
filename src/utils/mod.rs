@@ -1,3 +1,5 @@
 pub mod progress;
 
-pub use progress::{CategoryTracker, CompactDisplay, NoOpProgress, Progress, ProgressReporter, ScanStats};
+pub use progress::{
+    CategoryTracker, CompactDisplay, NoOpProgress, Progress, ProgressReporter, ScanStats,
+};

@@ -68,8 +68,13 @@ pub use config::{Config, OptionsConfig, PatternConfig, SafetyConfig};
 pub use engine::{prune_nested_items, ParallelCleaner, Scanner};
 pub use patterns::{PatternMatcher, BUILTIN_PATTERNS};
 pub use safety::SafetyGuard;
-pub use types::{CleanError, CleanItem, CleanReport, ItemType, McError, PatternCategory, PatternMatch, PatternSource, Result};
-pub use utils::{CategoryTracker, CompactDisplay, NoOpProgress, Progress, ProgressReporter, ScanStats};
+pub use types::{
+    CleanError, CleanItem, CleanReport, ItemType, McError, PatternCategory, PatternMatch,
+    PatternSource, Result,
+};
+pub use utils::{
+    CategoryTracker, CompactDisplay, NoOpProgress, Progress, ProgressReporter, ScanStats,
+};
 
 use std::path::Path;
 use std::sync::Arc;

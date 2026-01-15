@@ -302,7 +302,10 @@ impl CompactDisplay {
         let last = self.last_update.load(Ordering::Relaxed);
         // Update at most every 50ms
         if now_ms.saturating_sub(last) > 50
-            && self.last_update.compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed).is_ok()
+            && self
+                .last_update
+                .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
         {
             self.update_scan_display();
         }
@@ -376,4 +379,3 @@ impl Progress for CompactDisplay {
         self.bar.finish_and_clear();
     }
 }
-

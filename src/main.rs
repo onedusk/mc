@@ -145,7 +145,10 @@ fn run() -> Result<()> {
 
     // Calculate total size and count files/dirs
     let total_size: u64 = items.iter().map(|i| i.size).sum();
-    let dir_count = items.iter().filter(|i| matches!(i.item_type, mc::types::ItemType::Directory)).count();
+    let dir_count = items
+        .iter()
+        .filter(|i| matches!(i.item_type, mc::types::ItemType::Directory))
+        .count();
     let file_count = items.len() - dir_count;
 
     // Recalculate category tracker after pruning to show accurate breakdown
@@ -158,10 +161,14 @@ fn run() -> Result<()> {
     if !cli.quiet {
         println!();
         println!("{}", "━".repeat(50).bright_black());
-        
+
         // Show scan stats
         let scan_secs = scan_duration.as_secs_f64();
-        let scan_rate = if scan_secs > 0.0 { entries_scanned as f64 / scan_secs } else { 0.0 };
+        let scan_rate = if scan_secs > 0.0 {
+            entries_scanned as f64 / scan_secs
+        } else {
+            0.0
+        };
         println!(
             "{} {} entries in {:.2}s ({:.0}/s)",
             "Scanned".dimmed(),
@@ -169,7 +176,7 @@ fn run() -> Result<()> {
             scan_secs,
             scan_rate
         );
-        
+
         // Show found items breakdown
         println!(
             "\n{} {} ({} dirs, {} files) • {}",
@@ -224,7 +231,10 @@ fn run() -> Result<()> {
     report.scan_errors = scan_errors;
     report.scan_duration = scan_duration;
     report.entries_scanned = entries_scanned;
-    report.dirs_deleted = items.iter().filter(|i| matches!(i.item_type, mc::types::ItemType::Directory)).count();
+    report.dirs_deleted = items
+        .iter()
+        .filter(|i| matches!(i.item_type, mc::types::ItemType::Directory))
+        .count();
     report.files_deleted = items.len() - report.dirs_deleted;
 
     progress.finish();
@@ -360,7 +370,7 @@ fn print_report(report: &mc::CleanReport) {
             "✓".bright_green(),
             format_size(report.bytes_freed, DECIMAL).bright_green()
         );
-        
+
         // Show timing breakdown
         println!(
             "{} Scan: {:.2}s • Clean: {:.2}s • Total: {:.2}s",
@@ -369,7 +379,7 @@ fn print_report(report: &mc::CleanReport) {
             clean_secs,
             total_secs
         );
-        
+
         // Show throughput
         if mb_per_sec > 0.0 || items_per_sec > 0.0 {
             println!(
@@ -379,7 +389,7 @@ fn print_report(report: &mc::CleanReport) {
                 items_per_sec
             );
         }
-        
+
         println!("\n{}", "Done!".green());
     }
 
