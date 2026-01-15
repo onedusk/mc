@@ -172,7 +172,7 @@ Benchmarks show 5-10x speed improvement over sequential shell scripts on large c
   cargo bench --bench performance
   ```
 
-- Store Criterion reports under `docs/perf/<date>.md` (see `docs/dev/TECHNICAL_SPEC.md`) or wire summaries into CI to catch regressions.
+- Store Criterion reports under `docs/perf/<date>.md` or wire summaries into CI to catch regressions.
 - Capture real project timings with `cargo run -- --dry-run <path>` before and after changes to validate improvements.
 
 ## Examples
@@ -208,13 +208,6 @@ mc --yes --quiet --stats
 # Clean only specific patterns
 mc --include "*.cache" --include "tmp/*" --exclude ".env"
 ```
-
-## Documentation
-
-- [Product Requirements Document](docs/dev/PRD.md)
-- [Architecture Guide](docs/dev/ARCHITECTURE.md)
-- [Technical Specification](docs/dev/TECHNICAL_SPEC.md)
-- [API Documentation](docs/dev/API.md)
 
 ## Contributing
 
