@@ -87,7 +87,7 @@ fn run() -> Result<()> {
     }
 
     // Validate path
-    let path = cli.path.canonicalize().map_err(|e| mc::McError::Io(e))?;
+    let path = cli.path.canonicalize().map_err(mc::McError::Io)?;
 
     // Safety checks
     if config.safety.check_git_repo {

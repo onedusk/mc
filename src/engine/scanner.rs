@@ -117,7 +117,7 @@ impl Scanner {
             .into_iter()
             .par_bridge()
             .fold(
-                || ScanAccumulator::default(),
+                ScanAccumulator::default,
                 |mut acc, entry_result| {
                     // Track entries scanned
                     entries_counter_clone.fetch_add(1, Ordering::Relaxed);
@@ -254,7 +254,7 @@ impl Scanner {
                 },
             )
             .reduce(
-                || ScanAccumulator::default(),
+                ScanAccumulator::default,
                 |mut acc, mut other| {
                     acc.items.append(&mut other.items);
                     acc.errors.append(&mut other.errors);

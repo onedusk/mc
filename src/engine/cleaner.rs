@@ -60,6 +60,12 @@ pub struct Statistics {
     pub errors: DashMap<PathBuf, CleanError>,
 }
 
+impl Default for ParallelCleaner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ParallelCleaner {
     /// Creates a new `ParallelCleaner`.
     ///

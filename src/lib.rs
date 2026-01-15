@@ -101,7 +101,7 @@ impl Cleaner {
     /// # Arguments
     ///
     /// * `config` - The configuration that defines cleaning patterns, options, and safety checks.
-    ///              This struct is typically loaded from a `.mc.toml` file or created with `Config::default()`.
+    ///   This struct is typically loaded from a `.mc.toml` file or created with `Config::default()`.
     pub fn new(config: Config) -> Self {
         Self {
             config,
@@ -150,7 +150,7 @@ impl Cleaner {
     /// # Arguments
     ///
     /// * `path` - The root path to start cleaning from. It must be a generic that
-    ///            can be referenced as a `Path`.
+    ///   can be referenced as a `Path`.
     ///
     /// # Errors
     ///
@@ -183,11 +183,12 @@ impl Cleaner {
             if !self.quiet {
                 println!("✅ No files to clean!");
             }
-            let mut report = CleanReport::default();
-            report.scan_errors = scan_errors;
-            report.scan_duration = scan_duration;
-            report.entries_scanned = entries_scanned;
-            return Ok(report);
+            return Ok(CleanReport {
+                scan_errors,
+                scan_duration,
+                entries_scanned,
+                ..Default::default()
+            });
         }
 
         // Create progress reporter
