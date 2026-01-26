@@ -9,10 +9,10 @@
         <title>Packages</title>
         <section id="shared-packages-mc">
           <title>Mc</title>
-          <chapter id="shared-packages-mc-readme" path="shared/packages/mc/README.md" modified="2025-10-27T04:21:56Z" size="5096" words="677" readTime="2min" hash="sha256:32ac52cf43c457ce">
+          <chapter id="shared-packages-mc-readme" path="shared/packages/mc/README.md" modified="2026-01-15T18:33:21Z" size="4847" words="660" readTime="2min" hash="sha256:5118478a5f7a9215">
             <title>Mr. Cleann (mc)</title>
             <summary># Mr. Cleann (mc) A parallel build directory cleaner for modern development workflows. ## Features - **Fast**: Streaming scanner with parallel pattern matching and single-pass size aggregation - ...</summary>
-            <keywords>deletions, file, files, directory, patterns, build, track, parallel, preview, changes</keywords>
+            <keywords>rayon, thread, patterns, preview, performance, cleann, pattern, file, project, configuration</keywords>
           </chapter>
         </section>
       </section>
