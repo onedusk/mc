@@ -93,10 +93,12 @@ impl Config {
             .unwrap_or_else(Self::default_config_path);
 
         if config_path.exists() {
+            log::debug!("Loading config from: {}", config_path.display());
             let contents = fs::read_to_string(&config_path)?;
             let config: Config = toml::from_str(&contents)?;
             Ok(config)
         } else {
+            log::debug!("No config file found, using defaults");
             Ok(Self::default())
         }
     }
@@ -168,6 +170,13 @@ impl Config {
             }
         }
     }
+
+    /// Validates configuration values, clamping out-of-range settings.
+    pub fn validate(&mut self) {
+        self.options.parallel_threads =
+            crate::utils::clamp_parallelism(self.options.parallel_threads);
+        log::debug!("Config validated: parallel_threads={}", self.options.parallel_threads);
+    }
 }
 
 impl Default for Config {
@@ -218,7 +227,7 @@ impl Default for SafetyConfig {
 }
 
 fn default_parallel_threads() -> usize {
-    num_cpus::get()
+    crate::utils::available_parallelism()
 }
 
 fn default_true() -> bool {
@@ -231,19 +240,6 @@ fn default_max_depth() -> usize {
 
 fn default_min_free_space() -> f64 {
     1.0
-}
-
-// Helper function to get CPU count
-fn num_cpus() -> usize {
-    std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
-}
-
-mod num_cpus {
-    pub fn get() -> usize {
-        super::num_cpus()
-    }
 }
 
 #[cfg(test)]
@@ -288,5 +284,30 @@ mod tests {
 
         assert_eq!(config.patterns.directories.len(), initial_dirs_len + 1);
         assert!(config.patterns.directories.contains(&includes[1]));
+    }
+
+    #[test]
+    fn test_validate_clamps_zero_threads() {
+        let mut config = Config::default();
+        config.options.parallel_threads = 0;
+        config.validate();
+        assert!(config.options.parallel_threads >= 1);
+    }
+
+    #[test]
+    fn test_validate_clamps_excessive_threads() {
+        let mut config = Config::default();
+        config.options.parallel_threads = 99999;
+        config.validate();
+        assert!(config.options.parallel_threads <= crate::utils::available_parallelism());
+    }
+
+    #[test]
+    fn test_validate_preserves_valid_threads() {
+        let mut config = Config::default();
+        config.options.parallel_threads = 2;
+        config.validate();
+        // Only valid if machine has ≥2 cores, which is true for any modern system
+        assert_eq!(config.options.parallel_threads, 2);
     }
 }

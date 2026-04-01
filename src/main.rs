@@ -38,11 +38,38 @@ use mc::{
 /// This function initializes `env_logger` and calls the `run` function,
 /// handling any errors that occur and printing them to stderr.
 fn main() {
-    env_logger::init();
-
     if let Err(e) = run() {
         eprintln!("{} {}", "Error:".red().bold(), e);
         process::exit(1);
+    }
+}
+
+/// Initializes env_logger with the appropriate filter level.
+///
+/// Priority: RUST_LOG env var > --verbose > --quiet > default (Warn).
+fn init_logger(verbose: bool, quiet: bool) {
+    use log::LevelFilter;
+
+    if std::env::var("RUST_LOG").is_ok() {
+        env_logger::init();
+        return;
+    }
+
+    let level = if verbose {
+        LevelFilter::Debug
+    } else if quiet {
+        LevelFilter::Error
+    } else {
+        LevelFilter::Warn
+    };
+
+    env_logger::Builder::new().filter_level(level).init();
+}
+
+/// Applies --no-color and NO_COLOR before any output.
+fn apply_color_settings(no_color: bool) {
+    if no_color || std::env::var("NO_COLOR").is_ok() {
+        colored::control::set_override(false);
     }
 }
 
@@ -66,6 +93,11 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
 
+    // Initialize logger and color settings
+    init_logger(cli.verbose, cli.quiet);
+    apply_color_settings(cli.no_color);
+    let effective_quiet = cli.quiet || cli.json;
+
     // Handle subcommands
     if let Some(command) = &cli.command {
         return handle_command(command.clone(), &cli);
@@ -86,6 +118,10 @@ fn run() -> Result<()> {
         config.options.parallel_threads = threads;
     }
 
+    // Validate configuration
+    config.validate();
+    log::debug!("Configuration loaded: {:?}", config);
+
     // Validate path
     let path = cli.path.canonicalize().map_err(mc::McError::Io)?;
 
@@ -98,12 +134,13 @@ fn run() -> Result<()> {
         );
 
         if let Err(e) = guard.validate(&path) {
-            if !cli.quiet {
+            if !effective_quiet {
                 eprintln!("{}", e);
             }
             return Ok(()); // Exit gracefully for safety violations
         }
     }
+    log::debug!("Safety checks passed for {}", path.display());
 
     // Create pattern matcher
     let matcher = Arc::new(PatternMatcher::new(&config.patterns)?);
@@ -111,7 +148,7 @@ fn run() -> Result<()> {
     // Create category tracker and compact display for scanning
     let category_tracker = Arc::new(CategoryTracker::new());
     let scan_start = std::time::Instant::now();
-    let (items, scan_errors, entries_scanned) = if !cli.quiet {
+    let (items, scan_errors, entries_scanned) = if !effective_quiet {
         let display = CompactDisplay::new_for_scanning(Arc::clone(&category_tracker));
         let scan_stats = display.get_scan_stats();
 
@@ -135,9 +172,10 @@ fn run() -> Result<()> {
 
     // Prune nested items to avoid redundant deletions
     let items = mc::prune_nested_items(items);
+    log::info!("Scan complete: {} items found in {:.2}s", items.len(), scan_duration.as_secs_f64());
 
     if items.is_empty() {
-        if !cli.quiet {
+        if !effective_quiet {
             println!("\nNo files to clean!");
         }
         return Ok(());
@@ -158,7 +196,7 @@ fn run() -> Result<()> {
     }
 
     // Show summary with category breakdown
-    if !cli.quiet {
+    if !effective_quiet {
         println!();
         println!("{}", "━".repeat(50).bright_black());
 
@@ -210,7 +248,7 @@ fn run() -> Result<()> {
     }
 
     // Create progress reporter
-    let progress = if cli.quiet {
+    let progress = if effective_quiet {
         Arc::new(NoOpProgress) as Arc<dyn mc::Progress>
     } else {
         let display = CompactDisplay::new_for_cleaning(items.len() as u64);
@@ -222,9 +260,10 @@ fn run() -> Result<()> {
         Arc::new(display) as Arc<dyn mc::Progress>
     };
 
-    let cleaner = ParallelCleaner::new()
-        .with_threads(config.options.parallel_threads)
+    let cleaner = ParallelCleaner::new()?
+        .with_threads(config.options.parallel_threads)?
         .with_dry_run(cli.dry_run)
+        .with_quiet(effective_quiet)
         .with_progress(progress.clone());
 
     let mut report = cleaner.clean(items.clone())?;
@@ -238,9 +277,13 @@ fn run() -> Result<()> {
     report.files_deleted = items.len() - report.dirs_deleted;
 
     progress.finish();
+    log::info!("Clean complete: {} items, {} bytes freed", report.items_deleted, report.bytes_freed);
 
     // Show results
-    if cli.stats || config.options.show_statistics || !cli.quiet {
+    if cli.json {
+        let json_report = JsonReport::from(&report);
+        println!("{}", serde_json::to_string_pretty(&json_report)?);
+    } else if cli.stats || config.options.show_statistics || !effective_quiet {
         print_report(&report);
     }
 
@@ -393,14 +436,76 @@ fn print_report(report: &mc::CleanReport) {
         println!("\n{}", "Done!".green());
     }
 
-    // Show errors if any (compact format)
-    if !report.scan_errors.is_empty() || !report.errors.is_empty() {
-        println!();
-        let total_errors = report.scan_errors.len() + report.errors.len();
-        println!(
-            "{} {} errors occurred",
-            "⚠".yellow(),
-            total_errors.to_string().yellow()
-        );
+    print_error_details(report);
+}
+
+/// Prints error details when there are deletion or scan failures.
+fn print_error_details(report: &mc::CleanReport) {
+    let total_errors = report.scan_errors.len() + report.errors.len();
+    if total_errors == 0 {
+        return;
+    }
+
+    println!();
+    println!(
+        "{} {} errors occurred:",
+        "⚠".yellow(),
+        total_errors.to_string().yellow()
+    );
+
+    for (i, err) in report.errors.iter().enumerate() {
+        if i >= 10 {
+            println!(
+                "  {} ... and {} more",
+                "↳".dimmed(),
+                report.errors.len() - 10
+            );
+            break;
+        }
+        println!("  {} {}", "✗".red(), err);
+    }
+
+    for (i, err) in report.scan_errors.iter().enumerate() {
+        if i >= 5 {
+            println!(
+                "  {} ... and {} more scan errors",
+                "↳".dimmed(),
+                report.scan_errors.len() - 5
+            );
+            break;
+        }
+        println!("  {} {}", "↳".dimmed(), err);
+    }
+}
+
+/// JSON-serializable version of CleanReport with durations as milliseconds.
+#[derive(serde::Serialize)]
+struct JsonReport {
+    dry_run: bool,
+    items_deleted: usize,
+    bytes_freed: u64,
+    dirs_deleted: usize,
+    files_deleted: usize,
+    entries_scanned: usize,
+    duration_ms: u64,
+    scan_duration_ms: u64,
+    errors: Vec<mc::CleanError>,
+    scan_errors: Vec<mc::types::ScanError>,
+}
+
+impl From<&mc::CleanReport> for JsonReport {
+    fn from(r: &mc::CleanReport) -> Self {
+        Self {
+            dry_run: r.dry_run,
+            items_deleted: r.items_deleted,
+            bytes_freed: r.bytes_freed,
+            dirs_deleted: r.dirs_deleted,
+            files_deleted: r.files_deleted,
+            entries_scanned: r.entries_scanned,
+            duration_ms: r.duration.as_millis() as u64,
+            scan_duration_ms: r.scan_duration.as_millis() as u64,
+            errors: r.errors.clone(),
+            scan_errors: r.scan_errors.clone(),
+        }
     }
 }

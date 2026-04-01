@@ -178,6 +178,10 @@ pub enum McError {
     #[error("Safety check failed: {0}")]
     Safety(String),
 
+    /// An error that occurred while building the rayon thread pool.
+    #[error("Thread pool error: {0}")]
+    ThreadPool(String),
+
     /// An error indicating that the user cancelled the operation.
     #[error("User cancelled operation")]
     Cancelled,

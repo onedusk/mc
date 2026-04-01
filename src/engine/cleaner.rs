@@ -12,17 +12,15 @@
 //! OS to handle multiple deletion requests simultaneously.
 
 use colored::*;
-use dashmap::DashMap;
 use humansize::{format_size, DECIMAL};
 use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
 use std::fs;
 use std::io;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::types::{CleanError, CleanItem, CleanReport, ItemType};
+use crate::types::{CleanError, CleanItem, CleanReport, ItemType, McError};
 use crate::utils::progress::Progress;
 
 /// A parallel cleaner that deletes items concurrently using a thread pool.
@@ -39,63 +37,58 @@ pub struct ParallelCleaner {
     thread_pool: Arc<ThreadPool>,
     /// If true, no file system modifications will be made.
     dry_run: bool,
+    /// If true, suppress human-readable output (for --json or --quiet).
+    quiet: bool,
     /// An optional, thread-safe progress reporter.
     progress: Option<Arc<dyn Progress>>,
     /// A container for atomically updated statistics.
     stats: Arc<Statistics>,
 }
 
-/// A thread-safe structure for collecting statistics during the cleaning process.
-///
-/// `AtomicUsize` and `AtomicU64` are used to prevent race conditions when multiple
-/// threads are updating the statistics concurrently. `DashMap` provides a concurrent
-/// hash map for storing errors.
+/// Thread-safe counters updated during parallel deletion.
+/// Errors are collected via the `Mutex<Vec>` in the `clean()` method.
 #[derive(Default)]
 pub struct Statistics {
     /// The number of items successfully deleted.
     pub items_deleted: AtomicUsize,
     /// The total number of bytes freed.
     pub bytes_freed: AtomicU64,
-    /// A map of paths to errors that occurred during deletion.
-    pub errors: DashMap<PathBuf, CleanError>,
-}
-
-impl Default for ParallelCleaner {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl ParallelCleaner {
     /// Creates a new `ParallelCleaner`.
     ///
-    /// By default, it uses a number of threads equal to the number of logical CPU cores.
-    pub fn new() -> Self {
-        let thread_count = num_cpus::get();
+    /// Returns an error if the thread pool cannot be created (e.g., resource exhaustion).
+    pub fn new() -> std::result::Result<Self, McError> {
+        let thread_count = crate::utils::available_parallelism();
+        log::debug!("ParallelCleaner: {} threads", thread_count);
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(thread_count)
             .build()
-            .expect("failed to build rayon thread pool");
-        Self {
+            .map_err(|e| McError::ThreadPool(e.to_string()))?;
+        Ok(Self {
             thread_count,
             chunk_size: 1,
             thread_pool: Arc::new(thread_pool),
             dry_run: false,
+            quiet: false,
             progress: None,
             stats: Arc::new(Statistics::default()),
-        }
+        })
     }
 
     /// Sets the number of threads to use for cleaning.
-    pub fn with_threads(mut self, count: usize) -> Self {
+    ///
+    /// Returns an error if the thread pool cannot be rebuilt.
+    pub fn with_threads(mut self, count: usize) -> std::result::Result<Self, McError> {
         self.thread_count = count;
         self.thread_pool = Arc::new(
             ThreadPoolBuilder::new()
                 .num_threads(count)
                 .build()
-                .expect("failed to rebuild rayon thread pool"),
+                .map_err(|e| McError::ThreadPool(e.to_string()))?,
         );
-        self
+        Ok(self)
     }
 
     /// Sets the dry run mode.
@@ -104,6 +97,12 @@ impl ParallelCleaner {
     /// perform any actual file system modifications.
     pub fn with_dry_run(mut self, dry_run: bool) -> Self {
         self.dry_run = dry_run;
+        self
+    }
+
+    /// Sets quiet mode, suppressing human-readable output from dry-run.
+    pub fn with_quiet(mut self, quiet: bool) -> Self {
+        self.quiet = quiet;
         self
     }
 
@@ -132,6 +131,7 @@ impl ParallelCleaner {
     /// during file deletion are collected and included in the report, but they do
     /// not stop the entire cleaning process.
     pub fn clean(&self, mut items: Vec<CleanItem>) -> crate::types::Result<CleanReport> {
+        log::debug!("Cleaning {} items (dry_run={})", items.len(), self.dry_run);
         if self.dry_run {
             return self.dry_run_clean(items);
         }
@@ -143,7 +143,6 @@ impl ParallelCleaner {
 
         self.stats.items_deleted.store(0, Ordering::Relaxed);
         self.stats.bytes_freed.store(0, Ordering::Relaxed);
-        self.stats.errors.clear();
 
         let start = Instant::now();
         let progress = self.progress.clone();
@@ -162,14 +161,14 @@ impl ParallelCleaner {
                         }
                     }
                     Err(err) => {
+                        log::debug!("Delete failed: {}: {}", item.path.display(), err);
                         let clean_error = CleanError::IoError {
                             path: item.path.clone(),
                             message: err.to_string(),
                         };
-                        stats.errors.insert(item.path.clone(), clean_error.clone());
                         errors
                             .lock()
-                            .expect("error accumulator mutex poisoned")
+                            .unwrap_or_else(|e| e.into_inner())
                             .push(clean_error);
                     }
                 }
@@ -180,6 +179,9 @@ impl ParallelCleaner {
             Ok(list) => list,
             Err(poisoned) => poisoned.into_inner(),
         };
+
+        log::debug!("Clean done: {} deleted, {} errors",
+            stats.items_deleted.load(Ordering::Relaxed), errors.len());
 
         Ok(CleanReport {
             items_deleted: stats.items_deleted.load(Ordering::Relaxed),
@@ -230,13 +232,7 @@ impl ParallelCleaner {
     fn dry_run_clean(&self, items: Vec<CleanItem>) -> crate::types::Result<CleanReport> {
         let total_size: u64 = items.iter().map(|i| i.size).sum();
 
-        println!(
-            "\n{}",
-            "DRY RUN MODE - No files will be deleted".yellow().bold()
-        );
-        println!("{}", "─".repeat(50).bright_black());
-
-        // Group items by type for better display
+        // Group items by type
         let mut directories = Vec::new();
         let mut files = Vec::new();
 
@@ -247,45 +243,51 @@ impl ParallelCleaner {
             }
         }
 
-        // Display directories
-        if !directories.is_empty() {
-            println!("\n{}:", "Directories to remove".cyan().bold());
-            for dir in directories.iter().take(20) {
-                println!(
-                    "  {} {} ({})",
-                    "📁".bright_blue(),
-                    dir.path.display(),
-                    format_size(dir.size, DECIMAL).bright_yellow()
-                );
-            }
-            if directories.len() > 20 {
-                println!("  ... and {} more directories", directories.len() - 20);
-            }
-        }
+        if !self.quiet {
+            println!(
+                "\n{}",
+                "DRY RUN MODE - No files will be deleted".yellow().bold()
+            );
+            println!("{}", "─".repeat(50).bright_black());
 
-        // Display files
-        if !files.is_empty() {
-            println!("\n{}:", "Files to remove".cyan().bold());
-            for file in files.iter().take(20) {
-                println!(
-                    "  {} {} ({})",
-                    "📄".bright_green(),
-                    file.path.display(),
-                    format_size(file.size, DECIMAL).bright_yellow()
-                );
+            if !directories.is_empty() {
+                println!("\n{}:", "Directories to remove".cyan().bold());
+                for dir in directories.iter().take(20) {
+                    println!(
+                        "  {} {} ({})",
+                        "📁".bright_blue(),
+                        dir.path.display(),
+                        format_size(dir.size, DECIMAL).bright_yellow()
+                    );
+                }
+                if directories.len() > 20 {
+                    println!("  ... and {} more directories", directories.len() - 20);
+                }
             }
-            if files.len() > 20 {
-                println!("  ... and {} more files", files.len() - 20);
-            }
-        }
 
-        println!("\n{}", "─".repeat(50).bright_black());
-        println!("{}: {} items", "Total".bold(), items.len());
-        println!(
-            "{}: {}",
-            "Space to free".bold(),
-            format_size(total_size, DECIMAL).bright_green()
-        );
+            if !files.is_empty() {
+                println!("\n{}:", "Files to remove".cyan().bold());
+                for file in files.iter().take(20) {
+                    println!(
+                        "  {} {} ({})",
+                        "📄".bright_green(),
+                        file.path.display(),
+                        format_size(file.size, DECIMAL).bright_yellow()
+                    );
+                }
+                if files.len() > 20 {
+                    println!("  ... and {} more files", files.len() - 20);
+                }
+            }
+
+            println!("\n{}", "─".repeat(50).bright_black());
+            println!("{}: {} items", "Total".bold(), items.len());
+            println!(
+                "{}: {}",
+                "Space to free".bold(),
+                format_size(total_size, DECIMAL).bright_green()
+            );
+        }
 
         let dir_count = directories.len();
         let file_count = files.len();
@@ -305,15 +307,106 @@ impl ParallelCleaner {
     }
 }
 
-/// Returns the number of available logical CPU cores.
-fn num_cpus() -> usize {
-    std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{PatternCategory, PatternMatch, PatternSource};
+    use assert_fs::prelude::*;
+    use assert_fs::TempDir;
 
-mod num_cpus {
-    pub fn get() -> usize {
-        super::num_cpus()
+    fn make_clean_items(paths: &[&std::path::Path], item_type: ItemType) -> Vec<CleanItem> {
+        paths
+            .iter()
+            .map(|p| CleanItem {
+                path: p.to_path_buf(),
+                size: 100,
+                item_type: item_type.clone(),
+                pattern: PatternMatch {
+                    pattern: "test".to_string(),
+                    priority: 0,
+                    source: PatternSource::BuiltIn,
+                    category: PatternCategory::Other,
+                },
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_new_returns_result() {
+        let cleaner = ParallelCleaner::new();
+        assert!(cleaner.is_ok());
+    }
+
+    #[test]
+    fn test_with_threads_returns_result() {
+        let cleaner = ParallelCleaner::new().unwrap().with_threads(2);
+        assert!(cleaner.is_ok());
+    }
+
+    #[test]
+    fn test_clean_deletes_files() {
+        let temp = TempDir::new().unwrap();
+        let f1 = temp.child("a.log");
+        let f2 = temp.child("b.log");
+        let f3 = temp.child("c.log");
+        f1.touch().unwrap();
+        f2.touch().unwrap();
+        f3.touch().unwrap();
+
+        let items = make_clean_items(
+            &[f1.path(), f2.path(), f3.path()],
+            ItemType::File,
+        );
+
+        let cleaner = ParallelCleaner::new()
+            .unwrap()
+            .with_dry_run(false);
+        let report = cleaner.clean(items).unwrap();
+
+        assert_eq!(report.items_deleted, 3);
+        assert!(!report.dry_run);
+        assert!(!f1.path().exists());
+        assert!(!f2.path().exists());
+        assert!(!f3.path().exists());
+    }
+
+    #[test]
+    fn test_clean_dry_run_preserves_files() {
+        let temp = TempDir::new().unwrap();
+        let f1 = temp.child("a.log");
+        f1.touch().unwrap();
+
+        let items = make_clean_items(&[f1.path()], ItemType::File);
+
+        let cleaner = ParallelCleaner::new()
+            .unwrap()
+            .with_dry_run(true);
+        let report = cleaner.clean(items).unwrap();
+
+        assert!(report.dry_run);
+        assert_eq!(report.items_deleted, 1);
+        assert!(f1.path().exists(), "dry run should not delete files");
+    }
+
+    #[test]
+    fn test_clean_collects_errors() {
+        let temp = TempDir::new().unwrap();
+        // Point to a non-existent file so deletion fails
+        let missing = temp.path().join("does_not_exist.log");
+        let items = make_clean_items(&[missing.as_path()], ItemType::File);
+
+        let cleaner = ParallelCleaner::new()
+            .unwrap()
+            .with_dry_run(false);
+        let report = cleaner.clean(items).unwrap();
+
+        assert_eq!(report.errors.len(), 1);
+        match &report.errors[0] {
+            CleanError::IoError { path, .. } => {
+                assert_eq!(path, &missing);
+            }
+            other => panic!("Expected IoError, got {:?}", other),
+        }
     }
 }
+

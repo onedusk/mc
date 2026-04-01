@@ -199,9 +199,10 @@ impl Cleaner {
         };
 
         // Create cleaner
-        let cleaner = ParallelCleaner::new()
-            .with_threads(self.config.options.parallel_threads)
+        let cleaner = ParallelCleaner::new()?
+            .with_threads(self.config.options.parallel_threads)?
             .with_dry_run(self.dry_run)
+            .with_quiet(self.quiet)
             .with_progress(progress.clone());
 
         // Perform cleaning

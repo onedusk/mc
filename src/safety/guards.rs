@@ -37,72 +37,131 @@ impl SafetyGuard {
     }
 
     /// Validates the given path against the configured safety checks.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The path to validate.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if all checks pass, otherwise an `Err` with a descriptive message.
-    /// The error type is `anyhow::Error` to accommodate different failure modes.
     pub fn validate(&self, path: &Path) -> Result<()> {
-        // Check if path exists
         if !path.exists() {
             bail!("Path does not exist: {}", path.display());
         }
 
-        // Check if it's a git repository
         if self.check_git && self.is_git_repo(path) {
-            println!("⚠️  Warning: Path is inside a git repository.");
-            println!("   Use --no-git-check to override this safety check.");
+            eprintln!("⚠️  Warning: Path is inside a git repository.");
+            eprintln!("   Use --no-git-check to override this safety check.");
             bail!("Aborting due to git repository detection");
         }
 
-        // Check available disk space
-        #[cfg(unix)]
-        {
-            if let Ok(space) = self.get_free_space(path) {
-                if space < self.min_free_space {
-                    bail!(
-                        "Insufficient disk space. Need at least {} GB free",
-                        self.min_free_space / 1_000_000_000
-                    );
-                }
-            }
-        }
+        self.check_disk_space(path)?;
 
         Ok(())
     }
 
     /// Checks if a path is inside a git repository by looking for a `.git` directory
     /// in the path's ancestors.
-    ///
-    /// This is a crucial safety feature to prevent accidental deletion of a project's
-    /// version control history.
     fn is_git_repo(&self, path: &Path) -> bool {
+        log::debug!("Checking git repo at {}", path.display());
         path.ancestors().any(|p| p.join(".git").exists())
     }
 
-    /// Gets the available free space on the disk where the path is located.
-    ///
-    /// Note: This is currently a placeholder and does not perform a real check.
-    /// In a production implementation, this would use a library like `fs2` to
-    /// get accurate disk space information in a cross-platform way.
-    #[cfg(unix)]
-    fn get_free_space(&self, _path: &Path) -> Result<u64> {
-        // Simplified version - in production would use statvfs
-        Ok(u64::MAX) // Return max for now to avoid blocking
+    /// Checks that free disk space meets the configured minimum.
+    fn check_disk_space(&self, path: &Path) -> Result<()> {
+        let free = self.get_free_space(path)?;
+        if free < self.min_free_space {
+            bail!(
+                "Insufficient disk space. Have {} GB free, need at least {} GB",
+                free / 1_000_000_000,
+                self.min_free_space / 1_000_000_000
+            );
+        }
+        log::debug!(
+            "Disk space check passed: {} GB free (minimum: {} GB)",
+            free / 1_000_000_000,
+            self.min_free_space / 1_000_000_000
+        );
+        Ok(())
     }
 
-    /// Gets the available free space on the disk where the path is located.
-    ///
-    /// Note: This is currently a placeholder and does not perform a real check.
-    /// In a production implementation, this would use Windows-specific APIs to
-    /// get disk space information.
+    /// Gets free disk space via statvfs on Unix.
+    #[cfg(unix)]
+    fn get_free_space(&self, path: &Path) -> Result<u64> {
+        use std::ffi::CString;
+        use std::mem::MaybeUninit;
+        use std::os::unix::ffi::OsStrExt;
+
+        let c_path = CString::new(path.as_os_str().as_bytes())
+            .map_err(|_| anyhow::anyhow!("Invalid path for statvfs"))?;
+
+        let mut stat = MaybeUninit::<libc::statvfs>::uninit();
+        // SAFETY: c_path is a valid null-terminated C string, stat is properly aligned
+        let ret = unsafe { libc::statvfs(c_path.as_ptr(), stat.as_mut_ptr()) };
+        if ret != 0 {
+            let err = std::io::Error::last_os_error();
+            log::warn!("statvfs failed for {}: {}", path.display(), err);
+            return Ok(u64::MAX); // Fail open — don't block cleaning
+        }
+
+        // SAFETY: statvfs returned 0, so stat is initialized
+        let stat = unsafe { stat.assume_init() };
+        #[allow(clippy::unnecessary_cast)]
+        let free_bytes = (stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64);
+        Ok(free_bytes)
+    }
+
+    /// Stub for Windows — returns u64::MAX with a warning.
     #[cfg(windows)]
     fn get_free_space(&self, _path: &Path) -> Result<u64> {
-        // Windows implementation placeholder
-        Ok(u64::MAX) // Return max for now to avoid blocking
+        log::warn!("Disk space check not implemented on Windows");
+        Ok(u64::MAX)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_nonexistent_path() {
+        let guard = SafetyGuard::new(false, 10, 1.0);
+        let result = guard.validate(Path::new("/nonexistent/path/abc123"));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("does not exist"), "got: {}", msg);
+    }
+
+    #[test]
+    fn test_is_git_repo_detects_git_dir() {
+        let temp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(temp.path().join(".git")).unwrap();
+
+        let guard = SafetyGuard::new(true, 10, 0.0);
+        let result = guard.validate(temp.path());
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("git repository"), "got: {}", msg);
+    }
+
+    #[test]
+    fn test_is_git_repo_returns_false_without_git() {
+        let temp = tempfile::TempDir::new().unwrap();
+        // No .git dir — guard should pass (check_git=true but no repo found)
+        let guard = SafetyGuard::new(true, 10, 0.0);
+        let result = guard.validate(temp.path());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_disk_space_passes_when_sufficient() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let guard = SafetyGuard::new(false, 10, 0.0);
+        let result = guard.validate(temp.path());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(unix)] // Windows stub returns u64::MAX, so this test only works on Unix
+    fn test_check_disk_space_fails_when_insufficient() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let guard = SafetyGuard::new(false, 10, 999_999.0);
+        let result = guard.validate(temp.path());
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("Insufficient disk space"), "got: {}", msg);
     }
 }

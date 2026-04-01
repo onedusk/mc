@@ -103,6 +103,7 @@ impl Scanner {
     /// of large directories with many entries, as the pattern matching for each entry
     /// can happen concurrently.
     pub fn scan(&self) -> crate::types::Result<(Vec<CleanItem>, Vec<ScanError>, usize)> {
+        log::debug!("Starting scan from {} (max_depth={})", self.root.display(), self.max_depth);
         let matcher = Arc::clone(&self.matcher);
         let progress = self.progress.clone();
         let category_tracker = self.category_tracker.clone();
@@ -321,6 +322,7 @@ impl Scanner {
         }
 
         let entries_scanned = entries_counter.load(Ordering::Relaxed);
+        log::debug!("Scan complete: {} entries scanned, {} items matched", entries_scanned, items.len());
         Ok((items, errors, entries_scanned))
     }
 }

@@ -21,14 +21,21 @@ pub struct Cli {
     #[arg(short = 'd', long = "dry-run")]
     pub dry_run: bool,
 
-    /// Enables verbose output, which may provide more details about the cleaning process.
-    /// Note: Currently not implemented.
+    /// Enables verbose output with debug-level logging on stderr.
     #[arg(short = 'v', long = "verbose")]
     pub verbose: bool,
 
     /// Suppresses all non-essential output, showing only critical errors.
     #[arg(short = 'q', long = "quiet")]
     pub quiet: bool,
+
+    /// Disables colored output. Also respects the NO_COLOR environment variable.
+    #[arg(long = "no-color")]
+    pub no_color: bool,
+
+    /// Outputs the result as a JSON object to stdout. Implies --quiet for progress.
+    #[arg(long = "json")]
+    pub json: bool,
 
     /// Skips any interactive confirmation prompts, useful for scripting.
     /// This overrides the `require_confirmation` setting in the configuration file.

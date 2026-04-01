@@ -42,11 +42,18 @@ impl PatternMatcher {
     ///
     /// Returns a `PatternError` if any of the provided glob patterns are invalid.
     pub fn new(config: &PatternConfig) -> Result<Self, PatternError> {
-        Ok(Self {
+        let matcher = Self {
             directory_patterns: Self::compile_patterns_with_categories(&config.directories, true)?,
             file_patterns: Self::compile_patterns_with_categories(&config.files, false)?,
             exclude_patterns: Self::compile_patterns(&config.exclude)?,
-        })
+        };
+        log::debug!(
+            "Compiled {} dir, {} file, {} exclude patterns",
+            matcher.directory_patterns.len(),
+            matcher.file_patterns.len(),
+            matcher.exclude_patterns.len()
+        );
+        Ok(matcher)
     }
 
     /// Compiles a slice of string patterns into a vector of `glob::Pattern`s.
