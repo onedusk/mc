@@ -53,6 +53,10 @@ pub struct Statistics {
     pub items_deleted: AtomicUsize,
     /// The total number of bytes freed.
     pub bytes_freed: AtomicU64,
+    /// The number of directories successfully deleted.
+    pub dirs_deleted: AtomicUsize,
+    /// The number of files successfully deleted.
+    pub files_deleted: AtomicUsize,
 }
 
 impl ParallelCleaner {
@@ -156,6 +160,10 @@ impl ParallelCleaner {
                     Ok(()) => {
                         stats.items_deleted.fetch_add(1, Ordering::Relaxed);
                         stats.bytes_freed.fetch_add(item.size, Ordering::Relaxed);
+                        match item.item_type {
+                            ItemType::Directory => { stats.dirs_deleted.fetch_add(1, Ordering::Relaxed); }
+                            _ => { stats.files_deleted.fetch_add(1, Ordering::Relaxed); }
+                        }
                         if let Some(ref progress) = progress {
                             progress.increment(1);
                         }
@@ -191,8 +199,8 @@ impl ParallelCleaner {
             duration: start.elapsed(),
             scan_duration: std::time::Duration::ZERO,
             dry_run: false,
-            dirs_deleted: 0,  // Set by caller
-            files_deleted: 0, // Set by caller
+            dirs_deleted: stats.dirs_deleted.load(Ordering::Relaxed),
+            files_deleted: stats.files_deleted.load(Ordering::Relaxed),
             entries_scanned: 0, // Set by caller
         })
     }

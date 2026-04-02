@@ -5,6 +5,46 @@ All notable changes to Mr. Cleann (mc) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-01
+
+### Added
+
+-   **`--json` flag**: Main clean/dry-run command now supports `--json` for machine-readable JSON output to stdout. Implies `--quiet` for progress suppression.
+-   **`--no-color` flag**: Disables colored output. Also respects the `NO_COLOR` environment variable per [no-color.org](https://no-color.org).
+-   **`--verbose` wired**: `--verbose` now sets env_logger to `Debug` level, producing diagnostic output on stderr. `RUST_LOG` env var takes precedence as an override.
+-   **Structured logging**: 18 `log::debug!`/`log::info!`/`log::warn!` calls across config, scanner, cleaner, safety, and pattern modules.
+-   **Disk space check**: `SafetyGuard::get_free_space()` implemented via `libc::statvfs` on Unix. Windows returns `u64::MAX` with a warning (fail-open).
+-   **Config validation**: `Config::validate()` clamps `parallel_threads` to `[1, available_parallelism()]`.
+-   **GitHub Actions CI**: Workflow runs `cargo fmt --check`, `cargo clippy`, and `cargo test` on Ubuntu, macOS, and Windows.
+-   **GitHub Actions Release**: Tag-push workflow builds release binaries for 4 targets (Linux x86_64, macOS x86_64/aarch64, Windows x86_64) and creates a GitHub Release.
+-   **CLI integration tests**: 6 tests via `assert_cmd` covering dry-run, help, version, verbose, quiet, and error paths.
+-   **ParallelCleaner tests**: 5 unit tests covering actual deletion, dry-run, error collection, and fallible construction.
+-   **SafetyGuard tests**: 5 unit tests covering git detection, non-existent paths, and disk space thresholds.
+-   **Config validation tests**: 3 tests for thread count clamping edge cases.
+
+### Changed
+
+-   **Error handling in ParallelCleaner**: `new()` and `with_threads()` now return `Result<Self, McError>` instead of panicking via `.expect()`. New `McError::ThreadPool` variant.
+-   **Mutex recovery**: Poisoned mutex in parallel clean loop recovered via `unwrap_or_else(|e| e.into_inner())` instead of `.expect()`.
+-   **SafetyGuard error type**: Converted from `anyhow::Result` to `crate::types::Result` (`McError`), aligning with project convention (anyhow for app, thiserror for library).
+-   **Safety guard always runs**: Disk space check no longer bypassed when `--no-git-check` is set. Git check remains controlled by the flag.
+-   **Safety failures exit non-zero**: Safety check failures now propagate as `McError::Safety` (exit code 1) instead of silently returning `Ok(())` (exit code 0).
+-   **Accurate deletion counts**: `dirs_deleted` and `files_deleted` in `CleanReport` now track actual successful deletions via atomic counters, not the input item count.
+-   **Error detail reporting**: `print_error_details()` shows individual failed paths (up to 10 clean errors + 5 scan errors) instead of just a count.
+-   **Consolidated `num_cpus`**: Duplicate `num_cpus` modules in `config/mod.rs` and `cleaner.rs` replaced by `utils::available_parallelism()`.
+-   **Removed redundant DashMap**: `Statistics` struct no longer has an unused `errors: DashMap` field. Errors collected via existing `Mutex<Vec>`.
+
+### Removed
+
+-   **Unused dependencies**: `crossbeam-channel`, `chrono`, `regex` removed from `Cargo.toml`.
+
+### Fixed
+
+-   **Guard bypass**: `--no-git-check` no longer skips the disk space safety check.
+-   **Exit code on safety failure**: Scripts and CI pipelines now correctly detect safety check failures via non-zero exit code.
+-   **Deletion count accuracy**: Report no longer overstates `dirs_deleted`/`files_deleted` when some deletions fail.
+-   **stderr for warnings**: Safety guard messages now use `eprintln!` instead of `println!`.
+
 ## [Unreleased]
 
 ### Added

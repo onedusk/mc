@@ -5,7 +5,7 @@
 //! or sufficient free disk space. These checks are designed to be fail-safe,
 //! aborting the operation if any potential risks are detected.
 
-use anyhow::{bail, Result};
+use crate::types::{McError, Result};
 use std::path::Path;
 
 /// A guard that performs safety checks before cleaning.
@@ -39,13 +39,17 @@ impl SafetyGuard {
     /// Validates the given path against the configured safety checks.
     pub fn validate(&self, path: &Path) -> Result<()> {
         if !path.exists() {
-            bail!("Path does not exist: {}", path.display());
+            return Err(McError::Safety(format!(
+                "Path does not exist: {}",
+                path.display()
+            )));
         }
 
         if self.check_git && self.is_git_repo(path) {
-            eprintln!("⚠️  Warning: Path is inside a git repository.");
-            eprintln!("   Use --no-git-check to override this safety check.");
-            bail!("Aborting due to git repository detection");
+            return Err(McError::Safety(format!(
+                "Path is inside a git repository: {}. Use --no-git-check to override.",
+                path.display()
+            )));
         }
 
         self.check_disk_space(path)?;
@@ -64,11 +68,11 @@ impl SafetyGuard {
     fn check_disk_space(&self, path: &Path) -> Result<()> {
         let free = self.get_free_space(path)?;
         if free < self.min_free_space {
-            bail!(
+            return Err(McError::Safety(format!(
                 "Insufficient disk space. Have {} GB free, need at least {} GB",
                 free / 1_000_000_000,
                 self.min_free_space / 1_000_000_000
-            );
+            )));
         }
         log::debug!(
             "Disk space check passed: {} GB free (minimum: {} GB)",
@@ -86,7 +90,7 @@ impl SafetyGuard {
         use std::os::unix::ffi::OsStrExt;
 
         let c_path = CString::new(path.as_os_str().as_bytes())
-            .map_err(|_| anyhow::anyhow!("Invalid path for statvfs"))?;
+            .map_err(|_| McError::Safety("Invalid path for statvfs".to_string()))?;
 
         let mut stat = MaybeUninit::<libc::statvfs>::uninit();
         // SAFETY: c_path is a valid null-terminated C string, stat is properly aligned
@@ -140,7 +144,6 @@ mod tests {
     #[test]
     fn test_is_git_repo_returns_false_without_git() {
         let temp = tempfile::TempDir::new().unwrap();
-        // No .git dir — guard should pass (check_git=true but no repo found)
         let guard = SafetyGuard::new(true, 10, 0.0);
         let result = guard.validate(temp.path());
         assert!(result.is_ok());

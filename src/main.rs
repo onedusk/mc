@@ -125,21 +125,13 @@ fn run() -> Result<()> {
     // Validate path
     let path = cli.path.canonicalize().map_err(mc::McError::Io)?;
 
-    // Safety checks
-    if config.safety.check_git_repo {
-        let guard = SafetyGuard::new(
-            config.safety.check_git_repo,
-            config.safety.max_depth,
-            config.safety.min_free_space_gb,
-        );
-
-        if let Err(e) = guard.validate(&path) {
-            if !effective_quiet {
-                eprintln!("{}", e);
-            }
-            return Ok(()); // Exit gracefully for safety violations
-        }
-    }
+    // Safety checks (always run — git check respects config, disk space is unconditional)
+    let guard = SafetyGuard::new(
+        config.safety.check_git_repo,
+        config.safety.max_depth,
+        config.safety.min_free_space_gb,
+    );
+    guard.validate(&path)?;
     log::debug!("Safety checks passed for {}", path.display());
 
     // Create pattern matcher
@@ -270,11 +262,6 @@ fn run() -> Result<()> {
     report.scan_errors = scan_errors;
     report.scan_duration = scan_duration;
     report.entries_scanned = entries_scanned;
-    report.dirs_deleted = items
-        .iter()
-        .filter(|i| matches!(i.item_type, mc::types::ItemType::Directory))
-        .count();
-    report.files_deleted = items.len() - report.dirs_deleted;
 
     progress.finish();
     log::info!("Clean complete: {} items, {} bytes freed", report.items_deleted, report.bytes_freed);
