@@ -1,7 +1,12 @@
 target/
 toc.xml
+.DS_Store
 jot.yaml
 Cargo.lock
 .jotignore
 .ctxt/
 .tks/
+
+docs/decompose/
+docs/internal/
+.agent-docs/
