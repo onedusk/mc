@@ -161,8 +161,12 @@ impl ParallelCleaner {
                         stats.items_deleted.fetch_add(1, Ordering::Relaxed);
                         stats.bytes_freed.fetch_add(item.size, Ordering::Relaxed);
                         match item.item_type {
-                            ItemType::Directory => { stats.dirs_deleted.fetch_add(1, Ordering::Relaxed); }
-                            _ => { stats.files_deleted.fetch_add(1, Ordering::Relaxed); }
+                            ItemType::Directory => {
+                                stats.dirs_deleted.fetch_add(1, Ordering::Relaxed);
+                            }
+                            _ => {
+                                stats.files_deleted.fetch_add(1, Ordering::Relaxed);
+                            }
                         }
                         if let Some(ref progress) = progress {
                             progress.increment(1);
@@ -188,8 +192,11 @@ impl ParallelCleaner {
             Err(poisoned) => poisoned.into_inner(),
         };
 
-        log::debug!("Clean done: {} deleted, {} errors",
-            stats.items_deleted.load(Ordering::Relaxed), errors.len());
+        log::debug!(
+            "Clean done: {} deleted, {} errors",
+            stats.items_deleted.load(Ordering::Relaxed),
+            errors.len()
+        );
 
         Ok(CleanReport {
             items_deleted: stats.items_deleted.load(Ordering::Relaxed),
@@ -212,6 +219,9 @@ impl ParallelCleaner {
     fn delete_item(&self, item: &CleanItem) -> io::Result<()> {
         match item.item_type {
             ItemType::Directory => {
+                #[cfg(unix)]
+                parallel_remove::remove_dir_all_parallel(&item.path)?;
+                #[cfg(not(unix))]
                 fs::remove_dir_all(&item.path)?;
             }
             ItemType::File => {
@@ -315,6 +325,166 @@ impl ParallelCleaner {
     }
 }
 
+/// Parallel recursive directory deletion using directory-fd-relative syscalls.
+///
+/// `fs::remove_dir_all` walks its tree on a single thread, so one huge directory
+/// (e.g. a monorepo `node_modules`) becomes the long pole of the whole clean while
+/// other pool threads sit idle. Recursing into sibling subdirectories with rayon
+/// lets idle threads steal subtrees, keeping every thread busy issuing unlinks.
+///
+/// All operations use `openat`/`unlinkat` relative to an open directory descriptor,
+/// so each syscall resolves a single name instead of the full path. This matches
+/// std's per-operation cost and avoids contended lookups through the shared path
+/// prefix that plain path-based deletion would incur from every thread.
+#[cfg(unix)]
+mod parallel_remove {
+    use rayon::prelude::*;
+    use std::ffi::{CStr, CString, OsStr};
+    use std::io;
+    use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::Path;
+
+    /// Deletes the directory at `path` and everything inside it.
+    ///
+    /// Like `fs::remove_dir_all`, symlinks are unlinked, never followed:
+    /// entries are classified by `d_type`/`lstat`, so a symlink to a directory
+    /// takes the file branch, and directories are opened with `O_NOFOLLOW`.
+    pub fn remove_dir_all_parallel(path: &Path) -> io::Result<()> {
+        let c_path = CString::new(path.as_os_str().as_bytes())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains NUL"))?;
+        let fd = unsafe {
+            libc::open(
+                c_path.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        delete_contents(unsafe { OwnedFd::from_raw_fd(fd) }, path)?;
+        std::fs::remove_dir(path)
+    }
+
+    /// RAII wrapper closing a `DIR` stream (and its underlying fd) on drop.
+    struct Dir(*mut libc::DIR);
+
+    impl Dir {
+        fn fd(&self) -> RawFd {
+            unsafe { libc::dirfd(self.0) }
+        }
+    }
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            unsafe { libc::closedir(self.0) };
+        }
+    }
+
+    /// Consumes `dir_fd` and deletes everything inside the directory it refers to.
+    /// `path` is only used for the descriptor-exhaustion fallback.
+    fn delete_contents(dir_fd: OwnedFd, path: &Path) -> io::Result<()> {
+        let dp = unsafe { libc::fdopendir(dir_fd.as_raw_fd()) };
+        if dp.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        // fdopendir took ownership of the descriptor; Dir's closedir releases it.
+        std::mem::forget(dir_fd);
+        let dir = Dir(dp);
+
+        // Collect the full listing before unlinking: removing entries while the
+        // directory stream is being read can cause entries to be skipped.
+        let mut files: Vec<CString> = Vec::new();
+        let mut subdirs: Vec<CString> = Vec::new();
+        loop {
+            let entry = unsafe { libc::readdir(dp) };
+            if entry.is_null() {
+                break;
+            }
+            let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) };
+            let bytes = name.to_bytes();
+            if bytes == b"." || bytes == b".." {
+                continue;
+            }
+            let is_dir = match unsafe { (*entry).d_type } {
+                libc::DT_DIR => true,
+                libc::DT_UNKNOWN => {
+                    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+                    let rc = unsafe {
+                        libc::fstatat(
+                            dir.fd(),
+                            name.as_ptr(),
+                            &mut stat,
+                            libc::AT_SYMLINK_NOFOLLOW,
+                        )
+                    };
+                    if rc != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    stat.st_mode & libc::S_IFMT == libc::S_IFDIR
+                }
+                _ => false,
+            };
+            if is_dir {
+                subdirs.push(name.to_owned());
+            } else {
+                files.push(name.to_owned());
+            }
+        }
+
+        // Files in a single directory are unlinked serially (the filesystem
+        // serializes same-directory mutations anyway); parallelism comes from
+        // sibling subtrees.
+        for name in &files {
+            if unsafe { libc::unlinkat(dir.fd(), name.as_ptr(), 0) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+
+        let parent = unsafe { BorrowedFd::borrow_raw(dir.fd()) };
+        match subdirs.len() {
+            0 => Ok(()),
+            // Skip the parallel machinery for a lone child; deeper levels fan out.
+            1 => remove_tree_at(parent, &subdirs[0], path),
+            _ => subdirs
+                .par_iter()
+                .try_for_each(|name| remove_tree_at(parent, name, path)),
+        }
+    }
+
+    /// Deletes the directory `name` (relative to the open directory `parent`)
+    /// and everything inside it.
+    fn remove_tree_at(parent: BorrowedFd<'_>, name: &CStr, parent_path: &Path) -> io::Result<()> {
+        let fd = unsafe {
+            libc::openat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            let err = io::Error::last_os_error();
+            // Each in-flight recursion holds one descriptor; under descriptor
+            // exhaustion fall back to std's one-at-a-time deletion for this subtree.
+            return match err.raw_os_error() {
+                Some(libc::EMFILE) | Some(libc::ENFILE) => {
+                    let child = parent_path.join(OsStr::from_bytes(name.to_bytes()));
+                    std::fs::remove_dir_all(child)
+                }
+                _ => Err(err),
+            };
+        }
+
+        let child_path = parent_path.join(OsStr::from_bytes(name.to_bytes()));
+        delete_contents(unsafe { OwnedFd::from_raw_fd(fd) }, &child_path)?;
+
+        if unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,14 +531,9 @@ mod tests {
         f2.touch().unwrap();
         f3.touch().unwrap();
 
-        let items = make_clean_items(
-            &[f1.path(), f2.path(), f3.path()],
-            ItemType::File,
-        );
+        let items = make_clean_items(&[f1.path(), f2.path(), f3.path()], ItemType::File);
 
-        let cleaner = ParallelCleaner::new()
-            .unwrap()
-            .with_dry_run(false);
+        let cleaner = ParallelCleaner::new().unwrap().with_dry_run(false);
         let report = cleaner.clean(items).unwrap();
 
         assert_eq!(report.items_deleted, 3);
@@ -386,14 +551,58 @@ mod tests {
 
         let items = make_clean_items(&[f1.path()], ItemType::File);
 
-        let cleaner = ParallelCleaner::new()
-            .unwrap()
-            .with_dry_run(true);
+        let cleaner = ParallelCleaner::new().unwrap().with_dry_run(true);
         let report = cleaner.clean(items).unwrap();
 
         assert!(report.dry_run);
         assert_eq!(report.items_deleted, 1);
         assert!(f1.path().exists(), "dry run should not delete files");
+    }
+
+    #[test]
+    fn test_clean_deletes_nested_directory_tree() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.child("node_modules");
+        for pkg in 0..8 {
+            let nested = root.child(format!("pkg_{pkg}/lib/nested"));
+            nested.create_dir_all().unwrap();
+            nested.child("index.js").touch().unwrap();
+            root.child(format!("pkg_{pkg}/package.json"))
+                .touch()
+                .unwrap();
+        }
+
+        let items = make_clean_items(&[root.path()], ItemType::Directory);
+
+        let cleaner = ParallelCleaner::new().unwrap().with_dry_run(false);
+        let report = cleaner.clean(items).unwrap();
+
+        assert_eq!(report.items_deleted, 1);
+        assert!(report.errors.is_empty());
+        assert!(!root.path().exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_clean_does_not_follow_symlinks_out_of_tree() {
+        let temp = TempDir::new().unwrap();
+        let outside = temp.child("outside");
+        outside.create_dir_all().unwrap();
+        let keep = outside.child("keep.txt");
+        keep.touch().unwrap();
+
+        let doomed = temp.child("doomed");
+        doomed.create_dir_all().unwrap();
+        std::os::unix::fs::symlink(outside.path(), doomed.child("link").path()).unwrap();
+
+        let items = make_clean_items(&[doomed.path()], ItemType::Directory);
+
+        let cleaner = ParallelCleaner::new().unwrap().with_dry_run(false);
+        let report = cleaner.clean(items).unwrap();
+
+        assert!(report.errors.is_empty());
+        assert!(!doomed.path().exists());
+        assert!(keep.path().exists(), "symlink target contents must survive");
     }
 
     #[test]
@@ -403,9 +612,7 @@ mod tests {
         let missing = temp.path().join("does_not_exist.log");
         let items = make_clean_items(&[missing.as_path()], ItemType::File);
 
-        let cleaner = ParallelCleaner::new()
-            .unwrap()
-            .with_dry_run(false);
+        let cleaner = ParallelCleaner::new().unwrap().with_dry_run(false);
         let report = cleaner.clean(items).unwrap();
 
         assert_eq!(report.errors.len(), 1);
@@ -417,4 +624,3 @@ mod tests {
         }
     }
 }
-

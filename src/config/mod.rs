@@ -227,7 +227,10 @@ impl Default for SafetyConfig {
 }
 
 fn default_parallel_threads() -> usize {
-    crate::utils::available_parallelism()
+    // Deletion throughput saturates at low concurrency (filesystem metadata
+    // updates serialize in the kernel) and measurably degrades past ~8 threads,
+    // so more cores than that only add lock contention. --parallel overrides.
+    crate::utils::available_parallelism().min(8)
 }
 
 fn default_true() -> bool {

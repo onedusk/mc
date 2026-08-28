@@ -21,7 +21,7 @@
 //! # Implementation Details
 //!
 //! The cleaner operates in two main phases:
-//! 1.  **Scanning**: A [`Scanner`] traverses the file system from a given root path. It uses `walkdir` to gather directory entries and then processes them in parallel with `rayon` to identify items that match the configured patterns.
+//! 1.  **Scanning**: A [`Scanner`] traverses the file system from a given root path. It recurses into subdirectories in parallel with `rayon`, matching entries against the configured patterns and aggregating directory sizes bottom-up.
 //! 2.  **Cleaning**: The identified items are passed to a [`ParallelCleaner`], which reuses a dedicated `rayon` thread pool to delete the files and directories concurrently. Errors are gathered into a shared report the pool threads update as they work.
 //!
 //! This two-phase approach allows `mc` to first gather all targets and then present them to the user for confirmation (if required) before any destructive operations are performed.
