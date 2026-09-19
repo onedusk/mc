@@ -5,6 +5,29 @@ All notable changes to Mr. Cleann (mc) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-09-18
+
+### Changed
+
+-   **Default delete threads**: `parallel_threads` now defaults to `min(cores, 4)` (was `min(cores, 8)`). Measured on APFS (macOS) and ext4 (Linux) with 12 cores across two tree shapes, 4 threads was fastest or within 2% of fastest in every sweep, while 8 took 1.1-3x as long because filesystem metadata updates contend in the kernel. `--parallel` and the config file still override. The sample configs in `mc.toml` and `README.md` now use 4.
+-   **Exclusions cover whole subtrees**: The scanner no longer descends into a directory whose name matches an exclude pattern (e.g. `.git`), so nothing inside it can match. Previously only the excluded entry itself was protected. An excluded directory nested inside a matched one (e.g. `node_modules/dep/.git`) is still deleted with its parent and still counts toward the parent's reported size.
+-   **`PatternMatcher::is_excluded` is now public**, so the scanner can consult it.
+-   **Parallel directory deletion**: Directories are deleted by recursing into sibling subtrees across the Rayon pool with `openat`/`unlinkat` relative to directory descriptors, replacing one single-threaded `fs::remove_dir_all` per item. Falls back to std deletion on non-Unix platforms and under descriptor exhaustion.
+-   **Parallel recursive scanner**: Replaces `walkdir` + `par_bridge` with a parallel recursive walk that aggregates directory sizes bottom-up. Symlink cycle detection is preserved via a device/inode ancestor chain.
+
+### Removed
+
+-   **`walkdir` dependency**: No longer needed by the scanner.
+
+### Fixed
+
+-   **Matches inside `.git`**: Branches named like a cleaned directory (`build/x`, `vendor/y`, `dist/z`) create `.git/refs/heads/build/` and similar, which the scanner matched and would delete along with those branch refs. `*.log` files under `.git` matched the same way. The git repository check only inspects ancestors of the target path, so running `mc` on a folder that contains several repositories reached this. With symlink following enabled (`preserve_symlinks = false`), a symlinked directory with an excluded name is no longer descended either.
+
+### Performance
+
+-   **Full clean**: A 155k-file fixture on macOS/APFS cleans in 3.6-3.8s with default settings, down from 6.3-6.8s.
+-   **Scan**: 16-18% faster on both macOS and Linux for trees containing `.git` directories, which are no longer walked.
+
 ## [0.3.0] - 2026-04-01
 
 ### Added
