@@ -106,7 +106,7 @@ exclude = [
 ]
 
 [options]
-parallel_threads = 8
+parallel_threads = 4
 require_confirmation = true
 show_statistics = true
 preserve_symlinks = true

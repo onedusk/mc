@@ -42,7 +42,7 @@ pub struct PatternConfig {
 /// Defines operational options for the cleaner.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct OptionsConfig {
-    /// The number of parallel threads to use for cleaning. Defaults to the number of CPU cores.
+    /// The number of parallel threads to use for cleaning. Defaults to the number of CPU cores, capped at 4.
     #[serde(default = "default_parallel_threads")]
     pub parallel_threads: usize,
 
@@ -227,10 +227,12 @@ impl Default for SafetyConfig {
 }
 
 fn default_parallel_threads() -> usize {
-    // Deletion throughput saturates at low concurrency (filesystem metadata
-    // updates serialize in the kernel) and measurably degrades past ~8 threads,
-    // so more cores than that only add lock contention. --parallel overrides.
-    crate::utils::available_parallelism().min(8)
+    // Deletion throughput saturates at low concurrency because filesystem
+    // metadata updates serialize in the kernel. Measured on APFS (macOS) and
+    // ext4 (Linux) with 12 cores, 4 threads was fastest or within 2% of it on
+    // every tree shape, while 8 took 1.1-3x as long and 12 longer still, so
+    // more threads only add lock contention. --parallel overrides.
+    crate::utils::available_parallelism().min(4)
 }
 
 fn default_true() -> bool {
