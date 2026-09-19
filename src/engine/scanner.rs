@@ -488,8 +488,16 @@ mod tests {
             "expected aggregated size >= 1500, got {}",
             node_modules.size
         );
-        // The unmatched src/main.rs must not leak into the total.
-        assert!(node_modules.size < 1800);
+        // The unmatched src/main.rs must not leak into the total. The matched
+        // directory's own entry size is part of it and varies by filesystem
+        // (about 100 bytes on APFS, 4096 on ext4), so bound relative to that.
+        let dir_len = fs::metadata(&node_modules.path).unwrap().len();
+        assert!(
+            node_modules.size < 1800 + dir_len,
+            "expected size < {}, got {}",
+            1800 + dir_len,
+            node_modules.size
+        );
     }
 
     #[test]
