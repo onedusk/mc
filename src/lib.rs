@@ -248,7 +248,9 @@ mod tests {
             .create_dir_all()
             .unwrap();
         temp.child("target/debug/app.exe").create_dir_all().unwrap();
-        temp.child("app.log").touch().unwrap();
+        // Non-empty so bytes_freed > 0 on every platform; directory entries
+        // alone count as 0 bytes on Windows.
+        temp.child("app.log").write_str("log line\n").unwrap();
         temp
     }
 

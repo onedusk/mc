@@ -561,6 +561,9 @@ mod tests {
         assert!(items.is_empty());
     }
 
+    // Unix only: Windows ignores the read-only attribute when listing a
+    // directory, so there is no portable way to make the scan fail here.
+    #[cfg(unix)]
     #[test]
     fn test_permission_error_handling() {
         let temp = TempDir::new().unwrap();
@@ -568,18 +571,9 @@ mod tests {
         restricted_dir.create_dir_all().unwrap();
 
         // Remove execute permissions so the directory cannot be traversed.
-        #[cfg(unix)]
-        {
-            let mut perms = fs::metadata(restricted_dir.path()).unwrap().permissions();
-            perms.set_mode(0o000);
-            fs::set_permissions(restricted_dir.path(), perms).unwrap();
-        }
-        #[cfg(not(unix))]
-        {
-            let mut perms = fs::metadata(restricted_dir.path()).unwrap().permissions();
-            perms.set_readonly(true);
-            fs::set_permissions(restricted_dir.path(), perms).unwrap();
-        }
+        let mut perms = fs::metadata(restricted_dir.path()).unwrap().permissions();
+        perms.set_mode(0o000);
+        fs::set_permissions(restricted_dir.path(), perms).unwrap();
 
         let config = Config::default();
         let matcher = Arc::new(PatternMatcher::new(&config.patterns).unwrap());
