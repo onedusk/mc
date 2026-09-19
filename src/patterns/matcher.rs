@@ -164,7 +164,7 @@ impl PatternMatcher {
     }
 
     /// Checks if a path is excluded by any of the exclusion patterns.
-    fn is_excluded(&self, path: &Path) -> bool {
+    pub fn is_excluded(&self, path: &Path) -> bool {
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             self.exclude_patterns.iter().any(|p| p.matches(name))
         } else {

@@ -132,7 +132,7 @@ impl Scanner {
             } else {
                 None
             };
-            ctx.walk_children(&self.root, 1, root_link.as_ref());
+            ctx.walk_children(&self.root, 1, root_link.as_ref(), false);
         }
 
         let items = ctx.items.into_inner().unwrap_or_else(|e| e.into_inner());
@@ -226,7 +226,16 @@ impl WalkCtx<'_> {
     /// Walks the children of `dir` (which sit at `depth`), recursing into
     /// subdirectories in parallel. Returns the total size in bytes of the
     /// files in the subtree, which ancestors use for directory size totals.
-    fn walk_children(&self, dir: &Path, depth: usize, chain: Option<&AncestorLink<'_>>) -> u64 {
+    ///
+    /// `in_match` is true when an ancestor already matched; everything below
+    /// is deleted with it, so the walk there only matters for size totals.
+    fn walk_children(
+        &self,
+        dir: &Path,
+        depth: usize,
+        chain: Option<&AncestorLink<'_>>,
+        in_match: bool,
+    ) -> u64 {
         let reader = match fs::read_dir(dir) {
             Ok(reader) => reader,
             Err(err) => {
@@ -277,9 +286,17 @@ impl WalkCtx<'_> {
                 }
             }
 
+            // Excluded directories are not descended, so nothing inside them
+            // (e.g. `.git/refs/heads/build`) can match. Below a match they are
+            // deleted with the parent and still count toward its size.
+            let skip_descent = !in_match && self.matcher.is_excluded(&path);
+
             let pattern_match = self.matcher.matches_with_type(&path, Some(file_type));
 
             if file_type.is_dir() {
+                if skip_descent {
+                    continue;
+                }
                 let (base_size, node) = match entry.metadata() {
                     Ok(metadata) => (metadata.len(), dir_node(&metadata)),
                     Err(err) => {
@@ -317,7 +334,9 @@ impl WalkCtx<'_> {
 
             if file_type.is_symlink() && self.follow_symlinks {
                 if let Ok(target) = fs::metadata(&path) {
-                    if target.is_dir() {
+                    if target.is_dir() && skip_descent {
+                        // Excluded name: leave the linked directory alone.
+                    } else if target.is_dir() {
                         // Descend into the linked directory for size aggregation,
                         // unless doing so would revisit an ancestor.
                         match dir_node(&target) {
@@ -370,7 +389,12 @@ impl WalkCtx<'_> {
                     }
                     _ => chain,
                 };
-                self.walk_children(&sub.path, depth + 1, child_chain)
+                self.walk_children(
+                    &sub.path,
+                    depth + 1,
+                    child_chain,
+                    in_match || sub.matched.is_some(),
+                )
             } else {
                 0
             };
@@ -466,6 +490,48 @@ mod tests {
         );
         // The unmatched src/main.rs must not leak into the total.
         assert!(node_modules.size < 1800);
+    }
+
+    #[test]
+    fn test_excluded_directory_is_not_descended() {
+        let temp = TempDir::new().unwrap();
+        // Branches named `build/x` or `vendor/y` create these directories.
+        temp.child(".git/refs/heads/build/ci-fix").touch().unwrap();
+        temp.child(".git/refs/heads/vendor/update").touch().unwrap();
+        temp.child(".git/hooks/debug.log").touch().unwrap();
+        temp.child("build/out.o").touch().unwrap();
+
+        let config = Config::default();
+        let matcher = Arc::new(PatternMatcher::new(&config.patterns).unwrap());
+        let scanner = Scanner::new(temp.path().to_path_buf(), matcher);
+
+        let (items, errors, _) = scanner.scan().unwrap();
+
+        assert!(errors.is_empty());
+        assert_eq!(items.len(), 1, "unexpected items: {:?}", items);
+        assert_eq!(items[0].path, temp.path().join("build"));
+    }
+
+    #[test]
+    fn test_excluded_directory_inside_match_counts_toward_size() {
+        let temp = TempDir::new().unwrap();
+        // Git dependencies carry their own `.git`; it is deleted with the
+        // matched parent, so its bytes belong in the parent's size.
+        temp.child("node_modules/dep/.git/objects/pack")
+            .write_binary(&[0u8; 1000])
+            .unwrap();
+
+        let config = Config::default();
+        let matcher = Arc::new(PatternMatcher::new(&config.patterns).unwrap());
+        let scanner = Scanner::new(temp.path().to_path_buf(), matcher);
+
+        let (items, _, _) = scanner.scan().unwrap();
+
+        let node_modules = items
+            .iter()
+            .find(|item| item.path.ends_with("node_modules"))
+            .expect("node_modules should match");
+        assert!(node_modules.size >= 1000, "got {}", node_modules.size);
     }
 
     #[test]
