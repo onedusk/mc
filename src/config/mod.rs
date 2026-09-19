@@ -175,7 +175,10 @@ impl Config {
     pub fn validate(&mut self) {
         self.options.parallel_threads =
             crate::utils::clamp_parallelism(self.options.parallel_threads);
-        log::debug!("Config validated: parallel_threads={}", self.options.parallel_threads);
+        log::debug!(
+            "Config validated: parallel_threads={}",
+            self.options.parallel_threads
+        );
     }
 }
 

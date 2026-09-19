@@ -164,7 +164,11 @@ fn run() -> Result<()> {
 
     // Prune nested items to avoid redundant deletions
     let items = mc::prune_nested_items(items);
-    log::info!("Scan complete: {} items found in {:.2}s", items.len(), scan_duration.as_secs_f64());
+    log::info!(
+        "Scan complete: {} items found in {:.2}s",
+        items.len(),
+        scan_duration.as_secs_f64()
+    );
 
     if items.is_empty() {
         if !effective_quiet {
@@ -264,7 +268,11 @@ fn run() -> Result<()> {
     report.entries_scanned = entries_scanned;
 
     progress.finish();
-    log::info!("Clean complete: {} items, {} bytes freed", report.items_deleted, report.bytes_freed);
+    log::info!(
+        "Clean complete: {} items, {} bytes freed",
+        report.items_deleted,
+        report.bytes_freed
+    );
 
     // Show results
     if cli.json {
