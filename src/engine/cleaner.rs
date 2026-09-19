@@ -143,7 +143,7 @@ impl ParallelCleaner {
         // Sort by size descending so large directories start processing first.
         // This improves parallelization by avoiding the scenario where one thread
         // grinds through a huge directory at the end while others sit idle.
-        items.sort_by(|a, b| b.size.cmp(&a.size));
+        items.sort_by_key(|item| std::cmp::Reverse(item.size));
 
         self.stats.items_deleted.store(0, Ordering::Relaxed);
         self.stats.bytes_freed.store(0, Ordering::Relaxed);
